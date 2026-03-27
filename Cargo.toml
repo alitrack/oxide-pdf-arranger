@@ -1,0 +1,9 @@
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Oxide-PDF Contributors"]
+repository = "https://github.com/alitrack/oxide-pdf-arranger"

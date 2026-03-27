@@ -5,6 +5,7 @@ description = "Cross-platform PDF page arranger built on Oxide-PDF and Tauri"
 authors = ["Oxide-PDF Contributors"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/alitrack/oxide-pdf-arranger"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,3 +24,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+pdf-core = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-merge = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-split = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-rotate = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
