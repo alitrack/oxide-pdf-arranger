@@ -28,3 +28,4 @@ pdf-core = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" 
 pdf-merge = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
 pdf-split = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
 pdf-rotate = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-crop = { path = "../crates/pdf-crop" }
