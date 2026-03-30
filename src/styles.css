@@ -2,18 +2,21 @@
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #102127;
-  background:
-    radial-gradient(circle at top left, rgba(255, 243, 211, 0.75), transparent 28%),
-    radial-gradient(circle at top right, rgba(149, 203, 210, 0.42), transparent 30%),
-    linear-gradient(160deg, #f6efe2 0%, #edf2ef 44%, #dbe8ef 100%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
+  --app-fg: #102127;
+  --app-bg:
+    radial-gradient(circle at top left, rgba(255, 243, 211, 0.75), transparent 28%),
+    radial-gradient(circle at top right, rgba(149, 203, 210, 0.42), transparent 30%),
+    linear-gradient(160deg, #f6efe2 0%, #edf2ef 44%, #dbe8ef 100%);
+  --ink-strong: #13292f;
   --surface: rgba(255, 255, 255, 0.68);
   --surface-strong: rgba(255, 255, 255, 0.82);
+  --surface-solid: rgba(255, 255, 255, 0.92);
+  --surface-muted: rgba(255, 255, 255, 0.62);
   --border: rgba(16, 33, 39, 0.12);
   --border-strong: rgba(16, 33, 39, 0.22);
   --ink-muted: rgba(16, 33, 39, 0.72);
@@ -22,7 +25,105 @@
   --accent-strong: #0a4045;
   --accent-warm: #b05a3c;
   --error: #a33d2d;
+  --success: #17623c;
+  --error-bg: rgba(255, 245, 242, 0.88);
+  --error-border: rgba(163, 61, 45, 0.2);
+  --success-bg: rgba(241, 252, 245, 0.92);
+  --success-border: rgba(23, 98, 60, 0.18);
+  --hero-glow: radial-gradient(circle, rgba(13, 92, 99, 0.24), transparent 70%);
+  --input-bg: rgba(255, 255, 255, 0.72);
+  --accent-panel-bg: rgba(13, 92, 99, 0.06);
+  --accent-panel-border: rgba(13, 92, 99, 0.1);
+  --accent-chip-bg: rgba(13, 92, 99, 0.07);
+  --warm-panel-bg: rgba(176, 90, 60, 0.08);
+  --button-bg: rgba(255, 255, 255, 0.82);
+  --button-border: rgba(13, 92, 99, 0.16);
+  --zoom-controls-bg: rgba(255, 255, 255, 0.82);
+  --hover-bg: rgba(13, 92, 99, 0.08);
+  --page-card-bg: rgba(255, 255, 255, 0.72);
+  --page-card-selected-bg: rgba(255, 248, 244, 0.96);
+  --page-card-selected-border: rgba(176, 90, 60, 0.52);
+  --page-card-selected-shadow: 0 14px 34px rgba(176, 90, 60, 0.18);
+  --page-badge-bg: rgba(255, 255, 255, 0.82);
+  --page-badge-selected-bg: rgba(176, 90, 60, 0.14);
+  --page-badge-selected-fg: #7d321d;
+  --context-menu-bg: rgba(255, 255, 255, 0.96);
+  --statusbar-bg: rgba(16, 33, 39, 0.9);
+  --statusbar-fg: rgba(255, 255, 255, 0.88);
+  --statusbar-muted: rgba(255, 255, 255, 0.66);
+  --shortcut-bg: rgba(255, 255, 255, 0.74);
+  --kbd-bg: rgba(255, 255, 255, 0.92);
+  --preview-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(237, 242, 239, 0.98) 100%);
+  --preview-border: rgba(13, 92, 99, 0.14);
+  --page-row-bg: rgba(255, 255, 255, 0.68);
+  --skeleton-bg:
+    linear-gradient(
+      110deg,
+      rgba(13, 92, 99, 0.08) 8%,
+      rgba(255, 255, 255, 0.88) 18%,
+      rgba(13, 92, 99, 0.08) 33%
+    );
   --shadow: 0 24px 60px rgba(36, 50, 64, 0.12);
+  color: var(--app-fg);
+  background: var(--app-bg);
+}
+
+:root[data-theme="dark"] {
+  --app-fg: #e6eef2;
+  --app-bg:
+    radial-gradient(circle at top left, rgba(23, 72, 79, 0.55), transparent 28%),
+    radial-gradient(circle at top right, rgba(122, 69, 48, 0.32), transparent 30%),
+    linear-gradient(160deg, #0e171c 0%, #132127 44%, #152631 100%);
+  --ink-strong: #eef4f6;
+  --surface: rgba(18, 30, 37, 0.72);
+  --surface-strong: rgba(24, 38, 47, 0.86);
+  --surface-solid: rgba(27, 40, 49, 0.94);
+  --surface-muted: rgba(25, 39, 47, 0.68);
+  --border: rgba(223, 237, 244, 0.12);
+  --border-strong: rgba(223, 237, 244, 0.22);
+  --ink-muted: rgba(230, 238, 242, 0.78);
+  --ink-soft: rgba(230, 238, 242, 0.58);
+  --success: #8fe1b0;
+  --error-bg: rgba(83, 27, 19, 0.58);
+  --error-border: rgba(232, 129, 108, 0.24);
+  --success-bg: rgba(23, 98, 60, 0.24);
+  --success-border: rgba(143, 225, 176, 0.24);
+  --hero-glow: radial-gradient(circle, rgba(98, 191, 204, 0.24), transparent 70%);
+  --input-bg: rgba(20, 34, 42, 0.82);
+  --accent-panel-bg: rgba(13, 92, 99, 0.18);
+  --accent-panel-border: rgba(122, 203, 214, 0.2);
+  --accent-chip-bg: rgba(13, 92, 99, 0.18);
+  --warm-panel-bg: rgba(176, 90, 60, 0.18);
+  --button-bg: rgba(255, 255, 255, 0.06);
+  --button-border: rgba(122, 203, 214, 0.18);
+  --zoom-controls-bg: rgba(19, 31, 39, 0.92);
+  --hover-bg: rgba(122, 203, 214, 0.14);
+  --page-card-bg: rgba(23, 36, 44, 0.78);
+  --page-card-selected-bg: rgba(58, 33, 26, 0.88);
+  --page-card-selected-border: rgba(219, 133, 105, 0.42);
+  --page-card-selected-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  --page-badge-bg: rgba(19, 31, 39, 0.76);
+  --page-badge-selected-bg: rgba(176, 90, 60, 0.22);
+  --page-badge-selected-fg: #ffd8ca;
+  --context-menu-bg: rgba(18, 30, 37, 0.96);
+  --statusbar-bg: rgba(8, 14, 18, 0.92);
+  --statusbar-fg: rgba(255, 255, 255, 0.9);
+  --statusbar-muted: rgba(255, 255, 255, 0.68);
+  --shortcut-bg: rgba(23, 36, 44, 0.86);
+  --kbd-bg: rgba(10, 17, 21, 0.82);
+  --preview-bg:
+    linear-gradient(180deg, rgba(28, 42, 51, 0.96) 0%, rgba(17, 28, 35, 0.98) 100%);
+  --preview-border: rgba(122, 203, 214, 0.16);
+  --page-row-bg: rgba(23, 36, 44, 0.72);
+  --skeleton-bg:
+    linear-gradient(
+      110deg,
+      rgba(122, 203, 214, 0.08) 8%,
+      rgba(255, 255, 255, 0.08) 18%,
+      rgba(122, 203, 214, 0.08) 33%
+    );
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
 }
 
 * {
@@ -33,6 +134,9 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: var(--app-fg);
+  background: var(--app-bg);
+  transition: background 180ms ease, color 180ms ease;
 }
 
 button,
@@ -93,7 +197,7 @@ button {
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
   font-weight: 600;
   line-height: 1.05;
-  color: #13292f;
+  color: var(--ink-strong);
 }
 
 .hero h1 {
@@ -120,7 +224,7 @@ button {
   inset: auto -24px -36px auto;
   width: 180px;
   height: 180px;
-  background: radial-gradient(circle, rgba(13, 92, 99, 0.24), transparent 70%);
+  background: var(--hero-glow);
 }
 
 .checkpoint-list {
@@ -129,6 +233,51 @@ button {
   display: grid;
   gap: 12px;
   color: var(--ink-muted);
+}
+
+.theme-switcher {
+  position: relative;
+  z-index: 1;
+  margin-top: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.theme-switcher-label {
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+}
+
+.theme-toggle-group {
+  display: inline-flex;
+  width: fit-content;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  border: 1px solid var(--preview-border);
+}
+
+.theme-toggle-button {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 8px 12px;
+  border-radius: 999px;
+  text-transform: capitalize;
+  font-weight: 700;
+}
+
+.theme-toggle-button.active {
+  background: var(--button-bg);
+  color: var(--accent-strong);
+}
+
+.theme-switcher small {
+  color: var(--ink-soft);
+  text-transform: capitalize;
 }
 
 .workspace-grid {
@@ -159,7 +308,7 @@ button {
   padding: 18px 18px 20px;
   border-radius: 20px;
   background: var(--surface-strong);
-  border: 1px solid rgba(13, 92, 99, 0.14);
+  border: 1px solid var(--preview-border);
 }
 
 .operation-card-topline {
@@ -206,8 +355,8 @@ button {
   padding: 14px 16px;
   border-radius: 16px;
   border: 1px solid var(--border-strong);
-  background: rgba(255, 255, 255, 0.72);
-  color: #13292f;
+  background: var(--input-bg);
+  color: var(--ink-strong);
 }
 
 .field input:focus {
@@ -236,19 +385,19 @@ button {
   padding: 16px 18px;
   border-radius: 18px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--surface-muted);
 }
 
 .status-banner.error {
   color: var(--error);
-  border-color: rgba(163, 61, 45, 0.2);
-  background: rgba(255, 245, 242, 0.88);
+  border-color: var(--error-border);
+  background: var(--error-bg);
 }
 
 .status-banner.success {
-  color: #17623c;
-  border-color: rgba(23, 98, 60, 0.18);
-  background: rgba(241, 252, 245, 0.92);
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-bg);
 }
 
 .empty-state p,
@@ -277,8 +426,8 @@ button {
 .summary-field {
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(13, 92, 99, 0.06);
-  border: 1px solid rgba(13, 92, 99, 0.1);
+  background: var(--accent-panel-bg);
+  border: 1px solid var(--accent-panel-border);
 }
 
 .summary-field span {
@@ -307,7 +456,7 @@ button {
   gap: 10px;
   padding: 12px 16px;
   border-radius: 999px;
-  background: rgba(176, 90, 60, 0.08);
+  background: var(--warm-panel-bg);
   color: var(--accent-strong);
   width: fit-content;
 }
@@ -329,8 +478,8 @@ button {
   flex-wrap: wrap;
   padding: 12px 16px;
   border-radius: 18px;
-  background: rgba(13, 92, 99, 0.06);
-  border: 1px solid rgba(13, 92, 99, 0.1);
+  background: var(--accent-panel-bg);
+  border: 1px solid var(--accent-panel-border);
 }
 
 .page-action-bar span {
@@ -345,8 +494,8 @@ button {
   gap: 14px;
   padding: 16px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(13, 92, 99, 0.14);
+  background: var(--surface-strong);
+  border: 1px solid var(--preview-border);
 }
 
 .workspace-toolbar-meta {
@@ -361,7 +510,7 @@ button {
   align-items: baseline;
   padding: 10px 12px;
   border-radius: 999px;
-  background: rgba(13, 92, 99, 0.07);
+  background: var(--accent-chip-bg);
 }
 
 .workspace-toolbar-chip span {
@@ -382,8 +531,8 @@ button {
 }
 
 .secondary-button {
-  border: 1px solid rgba(13, 92, 99, 0.16);
-  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--button-border);
+  background: var(--button-bg);
   color: var(--accent-strong);
   border-radius: 999px;
   padding: 10px 14px;
@@ -396,7 +545,7 @@ button {
 }
 
 .secondary-button.danger {
-  border-color: rgba(163, 61, 45, 0.18);
+  border-color: var(--error-border);
   color: var(--error);
 }
 
@@ -410,7 +559,7 @@ button {
   min-width: 92px;
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(13, 92, 99, 0.1);
+  background: var(--accent-panel-bg);
   text-align: center;
 }
 
@@ -429,7 +578,7 @@ button {
 .page-table {
   border-radius: 20px;
   overflow: hidden;
-  border: 1px solid rgba(13, 92, 99, 0.12);
+  border: 1px solid var(--border);
 }
 
 .page-grid-shell {
@@ -454,7 +603,7 @@ button {
   margin: 0;
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
   font-size: 1.5rem;
-  color: #13292f;
+  color: var(--ink-strong);
 }
 
 .page-grid-caption {
@@ -469,8 +618,8 @@ button {
   gap: 8px;
   padding: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(13, 92, 99, 0.14);
+  background: var(--zoom-controls-bg);
+  border: 1px solid var(--preview-border);
 }
 
 .zoom-controls button {
@@ -483,7 +632,7 @@ button {
 }
 
 .zoom-controls button:hover {
-  background: rgba(13, 92, 99, 0.08);
+  background: var(--hover-bg);
 }
 
 .page-grid {
@@ -510,17 +659,17 @@ button {
 .page-card {
   padding: 14px;
   border-radius: 22px;
-  border: 1px solid rgba(13, 92, 99, 0.12);
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border);
+  background: var(--page-card-bg);
   display: grid;
   gap: 12px;
   text-align: left;
 }
 
 .page-card.selected {
-  border-color: rgba(176, 90, 60, 0.52);
-  box-shadow: 0 14px 34px rgba(176, 90, 60, 0.18);
-  background: rgba(255, 248, 244, 0.96);
+  border-color: var(--page-card-selected-border);
+  box-shadow: var(--page-card-selected-shadow);
+  background: var(--page-card-selected-bg);
 }
 
 .page-card:hover {
@@ -529,8 +678,8 @@ button {
 }
 
 .page-card.selected .page-badge {
-  background: rgba(176, 90, 60, 0.14);
-  color: #7d321d;
+  background: var(--page-badge-selected-bg);
+  color: var(--page-badge-selected-fg);
 }
 
 .page-context-menu {
@@ -541,8 +690,8 @@ button {
   gap: 4px;
   padding: 10px;
   border-radius: 18px;
-  border: 1px solid rgba(13, 92, 99, 0.14);
-  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--preview-border);
+  background: var(--context-menu-bg);
   box-shadow: 0 18px 48px rgba(16, 33, 39, 0.18);
   backdrop-filter: blur(18px);
 }
@@ -566,7 +715,7 @@ button {
 }
 
 .page-context-menu button:hover {
-  background: rgba(13, 92, 99, 0.08);
+  background: var(--hover-bg);
 }
 
 .page-context-menu button.danger {
@@ -584,8 +733,8 @@ button {
   flex-wrap: wrap;
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(16, 33, 39, 0.9);
-  color: rgba(255, 255, 255, 0.88);
+  background: var(--statusbar-bg);
+  color: var(--statusbar-fg);
   font-size: 0.9rem;
 }
 
@@ -595,7 +744,7 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: rgba(255, 255, 255, 0.66);
+  color: var(--statusbar-muted);
 }
 
 .shortcut-reference {
@@ -603,8 +752,8 @@ button {
   gap: 12px;
   padding: 16px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.74);
-  border: 1px solid rgba(13, 92, 99, 0.12);
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
 }
 
 .shortcut-reference-title {
@@ -631,8 +780,8 @@ button {
 kbd {
   padding: 4px 8px;
   border-radius: 8px;
-  border: 1px solid rgba(13, 92, 99, 0.18);
-  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--button-border);
+  background: var(--kbd-bg);
   color: var(--accent-strong);
   font-size: 0.8rem;
   font-family: "SFMono-Regular", "Consolas", monospace;
@@ -646,10 +795,9 @@ kbd {
 .page-preview {
   width: 100%;
   border-radius: 18px;
-  border: 1px solid rgba(13, 92, 99, 0.14);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(237, 242, 239, 0.98) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--preview-border);
+  background: var(--preview-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
   min-height: var(--page-preview-min-height, 180px);
   padding: 12px;
   display: grid;
@@ -671,7 +819,7 @@ kbd {
   justify-self: start;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--page-badge-bg);
   color: var(--accent-strong);
   font-size: 0.8rem;
   font-weight: 700;
@@ -704,13 +852,7 @@ kbd {
 
 .page-card.skeleton .page-preview,
 .page-card.skeleton .page-meta span {
-  background:
-    linear-gradient(
-      110deg,
-      rgba(13, 92, 99, 0.08) 8%,
-      rgba(255, 255, 255, 0.88) 18%,
-      rgba(13, 92, 99, 0.08) 33%
-    );
+  background: var(--skeleton-bg);
   background-size: 200% 100%;
   animation: shimmer 1.3s linear infinite;
 }
@@ -742,12 +884,12 @@ kbd {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-soft);
-  background: rgba(13, 92, 99, 0.08);
+  background: var(--hover-bg);
 }
 
 .page-row {
-  background: rgba(255, 255, 255, 0.68);
-  border-top: 1px solid rgba(13, 92, 99, 0.08);
+  background: var(--page-row-bg);
+  border-top: 1px solid var(--border);
   color: var(--ink-muted);
 }
 

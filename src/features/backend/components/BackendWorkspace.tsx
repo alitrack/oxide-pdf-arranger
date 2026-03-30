@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
 import { PageGrid } from "../../documents/components/PageGrid";
+import { useWorkspaceTheme } from "../../workspace/hooks/useWorkspaceTheme";
 
 const operationCards = [
   {
@@ -50,6 +51,8 @@ function isEditableTarget(target: EventTarget | null) {
 }
 
 export function BackendWorkspace() {
+  const { themePreference, resolvedTheme, setThemePreference } =
+    useWorkspaceTheme();
   const pdfPath = usePdfDocumentStore((state) => state.draftPath);
   const lastError = usePdfDocumentStore((state) => state.lastError);
   const lastOperationMessage = usePdfDocumentStore(
@@ -148,6 +151,23 @@ export function BackendWorkspace() {
             <li>Tauri commands are wired</li>
             <li>Frontend invoke wrapper is ready</li>
           </ul>
+          <div className="theme-switcher">
+            <span className="theme-switcher-label">Theme</span>
+            <div className="theme-toggle-group" role="group" aria-label="Workspace theme">
+              {(["system", "light", "dark"] as const).map((preference) => (
+                <button
+                  aria-pressed={themePreference === preference}
+                  className={`theme-toggle-button${themePreference === preference ? " active" : ""}`}
+                  key={preference}
+                  onClick={() => setThemePreference(preference)}
+                  type="button"
+                >
+                  {preference}
+                </button>
+              ))}
+            </div>
+            <small>Resolved: {resolvedTheme}</small>
+          </div>
         </div>
       </header>
 
@@ -302,6 +322,7 @@ export function BackendWorkspace() {
                 <span>Page count: {documentSummary.pageCount}</span>
                 <span>Selected: {selectedPageNumbers.length}</span>
                 <span>Grid width: {gridItemWidth}px</span>
+                <span>Theme: {resolvedTheme}</span>
                 <span className="statusbar-path">{documentSummary.path}</span>
               </div>
 
