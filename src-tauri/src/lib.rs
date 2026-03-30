@@ -1,14 +1,56 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use pdf_arranger_core::{
+    inspect_pdf as inspect_pdf_impl, merge_pdfs as merge_pdfs_impl, rotate_pdf as rotate_pdf_impl,
+    split_pdf as split_pdf_impl, AppError, MergePdfRequest, PdfDocumentSummary, PdfOperationResult,
+    RotatePdfRequest, SplitPdfRequest,
+};
+use std::sync::Once;
+use tracing::info;
+
+static LOGGING_INIT: Once = Once::new();
+
+fn init_logging() {
+    LOGGING_INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_target(false)
+            .compact()
+            .try_init();
+    });
+}
+
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+fn inspect_pdf(path: String) -> Result<PdfDocumentSummary, AppError> {
+    inspect_pdf_impl(&path)
+}
+
+#[tauri::command]
+fn merge_pdfs(request: MergePdfRequest) -> Result<PdfOperationResult, AppError> {
+    merge_pdfs_impl(&request)
+}
+
+#[tauri::command]
+fn split_pdf(request: SplitPdfRequest) -> Result<PdfOperationResult, AppError> {
+    split_pdf_impl(&request)
+}
+
+#[tauri::command]
+fn rotate_pdf(request: RotatePdfRequest) -> Result<PdfOperationResult, AppError> {
+    rotate_pdf_impl(&request)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_logging();
+    info!("Starting oxide-pdf-arranger backend");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            inspect_pdf,
+            merge_pdfs,
+            split_pdf,
+            rotate_pdf
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

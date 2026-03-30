@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/pdf-crop","src-tauri"]
+members = ["crates/pdf-arranger-core", "crates/pdf-crop", "src-tauri"]
 resolver = "2"
 
 [workspace.package]

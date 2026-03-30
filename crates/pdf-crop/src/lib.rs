@@ -33,11 +33,7 @@ pub enum CropError {
 }
 
 pub fn crop_page_box(page_box: PageBox, margins: CropMargins) -> Result<PageBox, CropError> {
-    if margins.left < 0.0
-        || margins.right < 0.0
-        || margins.top < 0.0
-        || margins.bottom < 0.0
-    {
+    if margins.left < 0.0 || margins.right < 0.0 || margins.top < 0.0 || margins.bottom < 0.0 {
         return Err(CropError::NegativeMargin);
     }
 

@@ -1,0 +1,21 @@
+[package]
+name = "pdf-arranger-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Oxide-PDF Contributors"]
+repository = "https://github.com/alitrack/oxide-pdf-arranger"
+
+[dependencies]
+lopdf = "0.39"
+pdf-core = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-merge = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-page-range = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-rotate = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-split = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "1.0"
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
