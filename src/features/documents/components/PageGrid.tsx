@@ -1,9 +1,11 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
   type MouseEvent,
 } from "react";
 import type { PdfPageInfo } from "../../backend/types/pdf";
@@ -18,6 +20,17 @@ interface PageGridProps {
   onResetZoom(): void;
   selectedPageNumbers: number[];
   onPageClick(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
+  onRotateSelected(rotationDegrees: 90 | 180 | 270): void;
+  onDuplicateSelected(): void;
+  onDeleteSelected(): void;
+  onInsertBlankAfterSelection(): void;
+  isApplyingPageAction: boolean;
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  pageNumber: number;
 }
 
 function getAspectRatio(page: PdfPageInfo) {
@@ -51,12 +64,19 @@ export function PageGrid({
   onResetZoom,
   selectedPageNumbers,
   onPageClick,
+  onRotateSelected,
+  onDuplicateSelected,
+  onDeleteSelected,
+  onInsertBlankAfterSelection,
+  isApplyingPageAction,
 }: PageGridProps) {
   const skeletons = Array.from({ length: 6 }, (_, index) => `skeleton-${index}`);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(gridItemWidth * 4);
   const [viewportHeight, setViewportHeight] = useState(720);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const virtualWindow = useMemo(
     () =>
       computeVirtualGridWindow({
@@ -100,6 +120,67 @@ export function PageGrid({
     }
   }, [pages, gridItemWidth]);
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!contextMenuRef.current?.contains(event.target as Node)) {
+        closeContextMenu();
+      }
+    };
+
+    const handleWindowScroll = () => {
+      closeContextMenu();
+    };
+
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeContextMenu();
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("scroll", handleWindowScroll, true);
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("scroll", handleWindowScroll, true);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [closeContextMenu, contextMenu]);
+
+  function openContextMenu(event: MouseEvent<HTMLButtonElement>, pageNumber: number) {
+    event.preventDefault();
+
+    if (!selectedPageNumbers.includes(pageNumber)) {
+      onPageClick(pageNumber, "replace");
+    }
+
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      pageNumber,
+    });
+  }
+
+  function handleContextMenuAction(action: () => void) {
+    action();
+    closeContextMenu();
+  }
+
+  function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      closeContextMenu();
+    }
+  }
+
   return (
     <div className="page-grid-shell" style={gridStyle}>
       <div className="page-grid-header">
@@ -140,6 +221,7 @@ export function PageGrid({
                   className={`page-card${selectedPageNumbers.includes(page.pageNumber) ? " selected" : ""}`}
                   key={page.pageNumber}
                   onClick={(event) => onPageClick(page.pageNumber, getSelectionMode(event))}
+                  onContextMenu={(event) => openContextMenu(event, page.pageNumber)}
                   type="button"
                 >
                   <div className="page-preview-wrap">
@@ -181,6 +263,64 @@ export function PageGrid({
             ))
           : null}
       </div>
+
+      {contextMenu ? (
+        <div
+          className="page-context-menu"
+          onKeyDown={handleMenuKeyDown}
+          ref={contextMenuRef}
+          role="menu"
+          style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+          tabIndex={-1}
+        >
+          <div className="page-context-menu-label">
+            Page {contextMenu.pageNumber}
+          </div>
+          <button
+            disabled={isApplyingPageAction}
+            onClick={() => handleContextMenuAction(() => onRotateSelected(90))}
+            type="button"
+          >
+            Rotate 90°
+          </button>
+          <button
+            disabled={isApplyingPageAction}
+            onClick={() => handleContextMenuAction(() => onRotateSelected(180))}
+            type="button"
+          >
+            Rotate 180°
+          </button>
+          <button
+            disabled={isApplyingPageAction}
+            onClick={() => handleContextMenuAction(() => onRotateSelected(270))}
+            type="button"
+          >
+            Rotate 270°
+          </button>
+          <button
+            disabled={isApplyingPageAction}
+            onClick={() => handleContextMenuAction(onDuplicateSelected)}
+            type="button"
+          >
+            Duplicate
+          </button>
+          <button
+            disabled={isApplyingPageAction}
+            onClick={() => handleContextMenuAction(onInsertBlankAfterSelection)}
+            type="button"
+          >
+            Insert blank after
+          </button>
+          <button
+            className="danger"
+            disabled={isApplyingPageAction}
+            onClick={() => handleContextMenuAction(onDeleteSelected)}
+            type="button"
+          >
+            Delete
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

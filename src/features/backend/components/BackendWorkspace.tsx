@@ -218,8 +218,13 @@ export function BackendWorkspace() {
               <PageGrid
                 gridItemWidth={gridItemWidth}
                 isLoading={isInspecting}
+                isApplyingPageAction={isApplyingPageAction}
+                onDeleteSelected={deleteSelectedPages}
+                onDuplicateSelected={duplicateSelectedPages}
+                onInsertBlankAfterSelection={insertBlankPageAfterSelection}
                 onPageClick={selectPage}
                 onResetZoom={resetGridZoom}
+                onRotateSelected={rotateSelectedPages}
                 onZoomIn={zoomInGrid}
                 onZoomOut={zoomOutGrid}
                 pages={documentSummary.pages}
@@ -239,8 +244,13 @@ export function BackendWorkspace() {
             <PageGrid
               gridItemWidth={gridItemWidth}
               isLoading={isInspecting}
+              isApplyingPageAction={isApplyingPageAction}
+              onDeleteSelected={deleteSelectedPages}
+              onDuplicateSelected={duplicateSelectedPages}
+              onInsertBlankAfterSelection={insertBlankPageAfterSelection}
               onPageClick={selectPage}
               onResetZoom={resetGridZoom}
+              onRotateSelected={rotateSelectedPages}
               onZoomIn={zoomInGrid}
               onZoomOut={zoomOutGrid}
               pages={[]}
