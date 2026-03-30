@@ -407,6 +407,21 @@ button {
   gap: 16px;
 }
 
+.page-grid-viewport {
+  display: grid;
+}
+
+.page-grid-viewport.virtualized {
+  max-height: min(72vh, 980px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.page-grid-virtual-stack {
+  display: grid;
+  align-content: start;
+}
+
 .page-card {
   padding: 14px;
   border-radius: 22px;
