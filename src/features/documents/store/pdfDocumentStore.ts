@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { pdfBackend } from "../../backend/api/pdfBackend";
 import type { PdfDocumentSummary } from "../../backend/types/pdf";
 import { TauriInvokeError } from "../../../shared/lib/tauri";
+import { updateRecentFiles } from "../../files/lib/recentFiles";
 import {
   applyRotationPreview,
   createInPlaceRotateRequest,
@@ -11,6 +12,33 @@ const DEFAULT_GRID_ITEM_WIDTH = 156;
 const GRID_ITEM_WIDTH_STEP = 20;
 const MIN_GRID_ITEM_WIDTH = 140;
 const MAX_GRID_ITEM_WIDTH = 260;
+const RECENT_FILES_LIMIT = 6;
+const RECENT_FILES_STORAGE_KEY = "oxide-pdf-arranger.recent-files";
+
+function getStoredRecentFiles() {
+  if (typeof window === "undefined") {
+    return [] as string[];
+  }
+
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(RECENT_FILES_STORAGE_KEY) ?? "[]",
+    );
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentFiles(files: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(RECENT_FILES_STORAGE_KEY, JSON.stringify(files));
+}
 
 interface PdfDocumentStoreState {
   draftPath: string;
@@ -22,6 +50,7 @@ interface PdfDocumentStoreState {
   isDeleting: boolean;
   isDuplicating: boolean;
   isInsertingBlank: boolean;
+  recentFiles: string[];
   selectedPageNumbers: number[];
   selectionAnchorPage: number | null;
   gridItemWidth: number;
@@ -51,6 +80,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isDeleting: false,
   isDuplicating: false,
   isInsertingBlank: false,
+  recentFiles: getStoredRecentFiles(),
   selectedPageNumbers: [],
   selectionAnchorPage: null,
   gridItemWidth: DEFAULT_GRID_ITEM_WIDTH,
@@ -81,11 +111,19 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
 
     try {
       const activeDocument = await pdfBackend.inspectPdf(nextPath);
+      const recentFiles = updateRecentFiles(
+        get().recentFiles,
+        nextPath,
+        RECENT_FILES_LIMIT,
+      );
+      persistRecentFiles(recentFiles);
+
       set({
         activeDocument,
         isInspecting: false,
         lastError: null,
         lastOperationMessage: null,
+        recentFiles,
         selectedPageNumbers: activeDocument.pages[0] ? [activeDocument.pages[0].pageNumber] : [],
         selectionAnchorPage: activeDocument.pages[0]?.pageNumber ?? null,
       });

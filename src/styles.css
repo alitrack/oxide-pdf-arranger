@@ -411,6 +411,45 @@ button {
   margin-top: 8px;
 }
 
+.recent-files {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.recent-files-title {
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+}
+
+.recent-files-list {
+  display: grid;
+  gap: 8px;
+}
+
+.recent-file-button {
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+  color: var(--ink-muted);
+  border-radius: 14px;
+  padding: 12px 14px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-file-button:hover {
+  background: var(--hover-bg);
+}
+
+.recent-file-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .document-summary {
   margin-top: 20px;
   display: grid;

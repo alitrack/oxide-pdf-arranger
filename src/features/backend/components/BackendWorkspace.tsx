@@ -66,6 +66,7 @@ export function BackendWorkspace() {
   const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
   const isDuplicating = usePdfDocumentStore((state) => state.isDuplicating);
   const isInsertingBlank = usePdfDocumentStore((state) => state.isInsertingBlank);
+  const recentFiles = usePdfDocumentStore((state) => state.recentFiles);
   const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
   const gridItemWidth = usePdfDocumentStore((state) => state.gridItemWidth);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
@@ -249,6 +250,28 @@ export function BackendWorkspace() {
           {lastError ? <div className="status-banner error">{lastError}</div> : null}
           {lastOperationMessage ? (
             <div className="status-banner success">{lastOperationMessage}</div>
+          ) : null}
+
+          {recentFiles.length > 0 ? (
+            <div className="recent-files">
+              <span className="recent-files-title">Recent files</span>
+              <div className="recent-files-list">
+                {recentFiles.map((filePath) => (
+                  <button
+                    className="recent-file-button"
+                    disabled={isInspecting}
+                    key={filePath}
+                    onClick={() => {
+                      setDraftPath(filePath);
+                      void inspectPdf(filePath);
+                    }}
+                    type="button"
+                  >
+                    {filePath}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : null}
 
           {documentSummary ? (
