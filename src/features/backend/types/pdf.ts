@@ -3,6 +3,7 @@ export interface PdfPageInfo {
   mediaBox: [number, number, number, number];
   cropBox: [number, number, number, number] | null;
   rotation: number;
+  thumbnailDataUrl: string;
 }
 
 export interface PdfDocumentSummary {

@@ -45,6 +45,11 @@ export function PageGrid({ pages, isLoading }: PageGridProps) {
               <article className="page-card" key={page.pageNumber}>
                 <div className="page-preview-wrap">
                   <div className="page-preview" style={{ aspectRatio: getAspectRatio(page) }}>
+                    <img
+                      alt={`${getPageLabel(page)} preview`}
+                      className="page-preview-image"
+                      src={page.thumbnailDataUrl}
+                    />
                     <span className="page-badge">{getPageLabel(page)}</span>
                     <div className="page-preview-center">
                       <strong>{page.pageNumber}</strong>

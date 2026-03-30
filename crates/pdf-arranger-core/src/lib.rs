@@ -1,3 +1,5 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use image::{imageops, ImageBuffer, Rgba};
 use lopdf::{Document, Object, ObjectId};
 use pdf_core::{InputSource, PdfDocument, PdfError};
 use pdf_merge::MergeEngine;
@@ -6,6 +8,7 @@ use pdf_rotate::RotateEngine;
 use pdf_split::extract_pages;
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::path::Path;
 use thiserror::Error;
 use tracing::info;
@@ -64,6 +67,7 @@ pub struct PdfPageInfo {
     pub media_box: [f32; 4],
     pub crop_box: Option<[f32; 4]>,
     pub rotation: i32,
+    pub thumbnail_data_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -114,14 +118,21 @@ pub fn inspect_pdf(path: &str) -> AppResult<PdfDocumentSummary> {
     let mut pages = Vec::with_capacity(pages_map.len());
 
     for (page_number, page_id) in &pages_map {
+        let media_box =
+            find_page_box(&doc.inner, *page_id, b"MediaBox").unwrap_or(DEFAULT_MEDIA_BOX);
         pages.push(PdfPageInfo {
             page_number: *page_number,
-            media_box: find_page_box(&doc.inner, *page_id, b"MediaBox")
-                .unwrap_or(DEFAULT_MEDIA_BOX),
+            media_box,
             crop_box: find_page_box(&doc.inner, *page_id, b"CropBox"),
             rotation: find_inherited_object(&doc.inner, *page_id, b"Rotate")
                 .and_then(|value| object_to_i32(&value))
                 .unwrap_or(0),
+            thumbnail_data_url: generate_page_thumbnail(
+                &doc.inner,
+                *page_id,
+                *page_number as usize,
+                media_box,
+            ),
         });
     }
 
@@ -336,6 +347,142 @@ fn parse_box(object: &Object) -> Option<[f32; 4]> {
     ])
 }
 
+fn generate_page_thumbnail(
+    doc: &Document,
+    page_id: ObjectId,
+    page_number: usize,
+    media_box: [f32; 4],
+) -> String {
+    const THUMB_WIDTH: u32 = 180;
+    const THUMB_HEIGHT: u32 = 240;
+
+    if let Some(img_data) = extract_first_image_from_page(doc, page_id) {
+        if let Ok(thumbnail) = create_thumbnail_from_image(&img_data, THUMB_WIDTH, THUMB_HEIGHT) {
+            return thumbnail;
+        }
+    }
+
+    generate_placeholder_thumbnail(page_number, media_box, THUMB_WIDTH, THUMB_HEIGHT)
+}
+
+fn extract_first_image_from_page(doc: &Document, page_id: ObjectId) -> Option<Vec<u8>> {
+    let resources = find_inherited_object(doc, page_id, b"Resources")?;
+    let resources_dict = object_to_dictionary(doc, &resources)?;
+    let xobject = resources_dict.get(b"XObject").ok()?;
+    let xobject_dict = object_to_dictionary(doc, xobject)?;
+
+    for (_, value) in xobject_dict.iter() {
+        let Object::Reference(id) = value else {
+            continue;
+        };
+
+        let Ok(Object::Stream(stream)) = doc.get_object(*id) else {
+            continue;
+        };
+        let Ok(Object::Name(subtype)) = stream.dict.get(b"Subtype") else {
+            continue;
+        };
+
+        if subtype == b"Image" {
+            let content = stream
+                .decompressed_content()
+                .unwrap_or_else(|_| stream.content.clone());
+            return Some(content);
+        }
+    }
+
+    None
+}
+
+fn object_to_dictionary<'a>(doc: &'a Document, value: &'a Object) -> Option<&'a lopdf::Dictionary> {
+    match value {
+        Object::Dictionary(dict) => Some(dict),
+        Object::Reference(id) => match doc.get_object(*id).ok()? {
+            Object::Dictionary(dict) => Some(dict),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn create_thumbnail_from_image(
+    img_data: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<String, image::ImageError> {
+    let image = image::load_from_memory(img_data)?;
+    let thumbnail = image.resize(width, height, imageops::FilterType::Lanczos3);
+
+    let mut buffer = Vec::new();
+    thumbnail.write_to(&mut Cursor::new(&mut buffer), image::ImageFormat::Png)?;
+
+    Ok(format!(
+        "data:image/png;base64,{}",
+        BASE64_STANDARD.encode(buffer)
+    ))
+}
+
+fn generate_placeholder_thumbnail(
+    page_number: usize,
+    media_box: [f32; 4],
+    width: u32,
+    height: u32,
+) -> String {
+    let page_width = (media_box[2] - media_box[0]).max(1.0);
+    let page_height = (media_box[3] - media_box[1]).max(1.0);
+    let page_ratio = (page_width / page_height) as f64;
+    let thumb_ratio = width as f64 / height as f64;
+
+    let (inner_width, inner_height) = if page_ratio >= thumb_ratio {
+        let next_width = width.saturating_sub(24);
+        let next_height = ((next_width as f64) / page_ratio) as u32;
+        (next_width, next_height.max(1))
+    } else {
+        let next_height = height.saturating_sub(24);
+        let next_width = ((next_height as f64) * page_ratio) as u32;
+        (next_width.max(1), next_height)
+    };
+
+    let offset_x = ((width - inner_width) / 2) as i32;
+    let offset_y = ((height - inner_height) / 2) as i32;
+    let accent_seed = (page_number as u8).wrapping_mul(17);
+
+    let mut image = ImageBuffer::from_pixel(width, height, Rgba([235, 240, 239, 255]));
+
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
+            let is_page = x >= offset_x
+                && x < offset_x + inner_width as i32
+                && y >= offset_y
+                && y < offset_y + inner_height as i32;
+
+            let pixel = if is_page {
+                if x < offset_x + 6 || y < offset_y + 6 {
+                    Rgba([188, 210, 212, 255])
+                } else {
+                    Rgba([255, 255, 255, 255])
+                }
+            } else {
+                Rgba([
+                    225u8.saturating_add(accent_seed / 8),
+                    230u8.saturating_sub(accent_seed / 10),
+                    236u8.saturating_sub(accent_seed / 12),
+                    255,
+                ])
+            };
+
+            image.put_pixel(x as u32, y as u32, pixel);
+        }
+    }
+
+    let mut buffer = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .expect("placeholder thumbnail should encode");
+
+    format!("data:image/png;base64,{}", BASE64_STANDARD.encode(buffer))
+}
+
 fn object_to_f32(value: &Object) -> Option<f32> {
     match value {
         Object::Integer(number) => Some(*number as f32),
@@ -433,10 +580,17 @@ mod tests {
                 media_box: [0.0, 0.0, 612.0, 792.0],
                 crop_box: None,
                 rotation: 0,
+                thumbnail_data_url: summary.pages[0].thumbnail_data_url.clone(),
             }
         );
         assert_eq!(summary.pages[1].rotation, 90);
         assert_eq!(summary.pages[1].media_box, [0.0, 0.0, 500.0, 700.0]);
+        assert!(
+            summary.pages[0]
+                .thumbnail_data_url
+                .starts_with("data:image/png;base64,"),
+            "inspect should include a thumbnail data url"
+        );
     }
 
     #[test]
