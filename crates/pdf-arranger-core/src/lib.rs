@@ -128,6 +128,14 @@ pub struct InsertBlankPageRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ReorderPagesRequest {
+    pub input_path: String,
+    pub page_numbers: Vec<u32>,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct CopyDocumentRequest {
     pub input_path: String,
     pub output_path: String,
@@ -409,6 +417,45 @@ pub fn insert_blank_page(request: &InsertBlankPageRequest) -> AppResult<PdfOpera
     })
 }
 
+pub fn reorder_pages(request: &ReorderPagesRequest) -> AppResult<PdfOperationResult> {
+    validate_path(&request.input_path, "input_path")?;
+    validate_path(&request.output_path, "output_path")?;
+    validate_page_numbers_not_empty(&request.page_numbers)?;
+    ensure_output_parent(&request.output_path)?;
+
+    let input_doc = PdfDocument::load(&request.input_path)?;
+    let page_count = input_doc.page_count();
+    validate_reorder_page_numbers(page_count, &request.page_numbers)?;
+
+    let sources: Vec<_> = request
+        .page_numbers
+        .iter()
+        .enumerate()
+        .map(|(index, page_number)| {
+            let handle = handle_for_index(index);
+            (
+                InputSource::new(&request.input_path).with_handle(handle.clone()),
+                vec![single_page_range(&handle, *page_number)],
+            )
+        })
+        .collect();
+
+    info!(
+        input_path = request.input_path,
+        output_path = request.output_path,
+        page_numbers = ?request.page_numbers,
+        "Reordering PDF pages"
+    );
+    let mut merged = MergeEngine::merge(&sources)?;
+    let output_page_count = merged.page_count() as u32;
+    merged.save(&request.output_path)?;
+
+    Ok(PdfOperationResult {
+        output_path: request.output_path.clone(),
+        page_count: output_page_count,
+    })
+}
+
 pub fn copy_document(request: &CopyDocumentRequest) -> AppResult<PdfOperationResult> {
     validate_path(&request.input_path, "input_path")?;
     validate_path(&request.output_path, "output_path")?;
@@ -456,6 +503,25 @@ fn validate_page_numbers_exist(page_count: usize, page_numbers: &[u32]) -> AppRe
                 "page {page_number} is out of range for a document with {page_count} pages"
             )));
         }
+    }
+
+    Ok(())
+}
+
+fn validate_reorder_page_numbers(page_count: usize, page_numbers: &[u32]) -> AppResult<()> {
+    if page_numbers.len() != page_count {
+        return Err(AppError::InvalidRequest(format!(
+            "page_numbers must include exactly {page_count} pages"
+        )));
+    }
+
+    validate_page_numbers_exist(page_count, page_numbers)?;
+
+    let unique_pages: std::collections::HashSet<_> = page_numbers.iter().copied().collect();
+    if unique_pages.len() != page_numbers.len() {
+        return Err(AppError::InvalidRequest(
+            "page_numbers must not contain duplicates".to_string(),
+        ));
     }
 
     Ok(())
@@ -1088,5 +1154,49 @@ mod tests {
         assert!(output.exists(), "copy should create an output pdf");
         assert_eq!(extract_page_markers(&output), vec!["A", "B", "C"]);
         assert_ne!(input, output, "copy target should stay distinct from input path");
+    }
+
+    #[test]
+    fn reorder_pages_rewrites_document_in_the_requested_order() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("reorder-input.pdf");
+        let output = dir.path().join("reorder-output.pdf");
+        create_text_fixture_with_pages(
+            &input,
+            &[("A", 612, 792, 0), ("B", 612, 792, 0), ("C", 612, 792, 0)],
+        );
+
+        let result = reorder_pages(&ReorderPagesRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            page_numbers: vec![3, 1, 2],
+            output_path: output.to_string_lossy().into_owned(),
+        })
+        .expect("reorder pages");
+
+        assert_eq!(result.page_count, 3);
+        assert_eq!(extract_page_markers(&output), vec!["C", "A", "B"]);
+    }
+
+    #[test]
+    fn reorder_pages_rejects_duplicate_page_numbers() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("reorder-invalid-input.pdf");
+        let output = dir.path().join("reorder-invalid-output.pdf");
+        create_text_fixture_with_pages(
+            &input,
+            &[("A", 612, 792, 0), ("B", 612, 792, 0), ("C", 612, 792, 0)],
+        );
+
+        let error = reorder_pages(&ReorderPagesRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            page_numbers: vec![1, 1, 3],
+            output_path: output.to_string_lossy().into_owned(),
+        })
+        .expect_err("duplicate reorder pages should fail");
+
+        assert!(
+            matches!(error, AppError::InvalidRequest(_)),
+            "expected validation error, got {error:?}"
+        );
     }
 }

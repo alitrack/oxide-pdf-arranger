@@ -74,6 +74,7 @@ export function BackendWorkspace() {
   const isUndoing = usePdfDocumentStore((state) => state.isUndoing);
   const isRedoing = usePdfDocumentStore((state) => state.isRedoing);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
+  const isReordering = usePdfDocumentStore((state) => state.isReordering);
   const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
   const isDuplicating = usePdfDocumentStore((state) => state.isDuplicating);
   const isInsertingBlank = usePdfDocumentStore((state) => state.isInsertingBlank);
@@ -87,6 +88,7 @@ export function BackendWorkspace() {
   const rotateSelectedPages = usePdfDocumentStore(
     (state) => state.rotateSelectedPages,
   );
+  const reorderPages = usePdfDocumentStore((state) => state.reorderPages);
   const saveDocumentAs = usePdfDocumentStore((state) => state.saveDocumentAs);
   const exportDocumentCopy = usePdfDocumentStore(
     (state) => state.exportDocumentCopy,
@@ -109,6 +111,7 @@ export function BackendWorkspace() {
     isUndoing ||
     isRedoing ||
     isRotating ||
+    isReordering ||
     isDeleting ||
     isDuplicating ||
     isInsertingBlank;
@@ -500,6 +503,7 @@ export function BackendWorkspace() {
                 onDuplicateSelected={duplicateSelectedPages}
                 onInsertBlankAfterSelection={insertBlankPageAfterSelection}
                 onPageClick={selectPage}
+                onReorderPages={reorderPages}
                 onResetZoom={resetGridZoom}
                 onRotateSelected={rotateSelectedPages}
                 onZoomIn={zoomInGrid}
@@ -564,6 +568,7 @@ export function BackendWorkspace() {
               onDuplicateSelected={duplicateSelectedPages}
               onInsertBlankAfterSelection={insertBlankPageAfterSelection}
               onPageClick={selectPage}
+              onReorderPages={reorderPages}
               onResetZoom={resetGridZoom}
               onRotateSelected={rotateSelectedPages}
               onZoomIn={zoomInGrid}

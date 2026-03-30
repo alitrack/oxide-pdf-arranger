@@ -60,6 +60,7 @@ interface PdfDocumentStoreState {
   isUndoing: boolean;
   isRedoing: boolean;
   isRotating: boolean;
+  isReordering: boolean;
   isDeleting: boolean;
   isDuplicating: boolean;
   isInsertingBlank: boolean;
@@ -71,6 +72,7 @@ interface PdfDocumentStoreState {
   setDraftPath(nextPath: string): void;
   inspectPdf(path?: string): Promise<void>;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
+  reorderPages(pageNumbers: number[]): Promise<void>;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
   saveDocumentAs(outputPath: string): Promise<void>;
   exportDocumentCopy(outputPath: string): Promise<void>;
@@ -188,6 +190,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isUndoing: false,
   isRedoing: false,
   isRotating: false,
+  isReordering: false,
   isDeleting: false,
   isDuplicating: false,
   isInsertingBlank: false,
@@ -299,6 +302,83 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       selectedPageNumbers: pageOrder.slice(start, end + 1),
       selectionAnchorPage: anchor,
     });
+  },
+
+  async reorderPages(pageNumbers) {
+    const { activeDocument, actionHistory, selectedPageNumbers } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const currentPageNumbers = activeDocument.pages.map((page) => page.pageNumber);
+    const hasSameLength = pageNumbers.length === currentPageNumbers.length;
+    const hasSameOrder =
+      hasSameLength && pageNumbers.every((pageNumber, index) => pageNumber === currentPageNumbers[index]);
+
+    if (!hasSameLength || hasSameOrder) {
+      return;
+    }
+
+    let pendingHistoryEntry: ActionHistoryEntry;
+
+    try {
+      pendingHistoryEntry = await createPendingHistoryEntry(
+        activeDocument.path,
+        `重排 ${pageNumbers.length} 页`,
+      );
+    } catch (error) {
+      set({
+        lastError: getOperationErrorMessage(error, "记录撤销快照失败。"),
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isReordering: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.reorderPages({
+        inputPath: activeDocument.path,
+        pageNumbers,
+        outputPath: activeDocument.path,
+      });
+      const refreshedDocument = await pdfBackend.inspectPdf(activeDocument.path);
+      let nextActionHistory = actionHistory;
+      let nextOperationMessage = `已重排 ${pageNumbers.length} 页。`;
+
+      try {
+        nextActionHistory = await finalizeHistoryEntry(
+          actionHistory,
+          activeDocument.path,
+          pendingHistoryEntry,
+        );
+      } catch {
+        nextOperationMessage += " 但未能记录撤销历史。";
+      }
+
+      set({
+        activeDocument: refreshedDocument,
+        actionHistory: nextActionHistory,
+        isReordering: false,
+        lastError: null,
+        lastOperationMessage: nextOperationMessage,
+        ...getBoundSelection(refreshedDocument, selectedPageNumbers),
+      });
+    } catch (error) {
+      set({
+        isReordering: false,
+        lastError: getOperationErrorMessage(error, "重排页面失败。"),
+        lastOperationMessage: null,
+      });
+    }
   },
 
   async rotateSelectedPages(rotationDegrees) {

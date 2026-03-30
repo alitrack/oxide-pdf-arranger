@@ -2,10 +2,11 @@ use pdf_arranger_core::{
     copy_document as copy_document_impl,
     delete_pages as delete_pages_impl, duplicate_pages as duplicate_pages_impl,
     insert_blank_page as insert_blank_page_impl, inspect_pdf as inspect_pdf_impl,
-    merge_pdfs as merge_pdfs_impl, rotate_pdf as rotate_pdf_impl,
-    split_pdf as split_pdf_impl, AppError, CopyDocumentRequest, DeletePagesRequest,
-    DuplicatePagesRequest, InsertBlankPageRequest, MergePdfRequest, PdfDocumentSummary,
-    PdfOperationResult, RotatePdfRequest, SplitPdfRequest,
+    merge_pdfs as merge_pdfs_impl, reorder_pages as reorder_pages_impl,
+    rotate_pdf as rotate_pdf_impl, split_pdf as split_pdf_impl, AppError,
+    CopyDocumentRequest, DeletePagesRequest, DuplicatePagesRequest,
+    InsertBlankPageRequest, MergePdfRequest, PdfDocumentSummary, PdfOperationResult,
+    ReorderPagesRequest, RotatePdfRequest, SplitPdfRequest,
 };
 use std::sync::Once;
 use tracing::info;
@@ -58,6 +59,11 @@ fn insert_blank_page(request: InsertBlankPageRequest) -> Result<PdfOperationResu
 }
 
 #[tauri::command]
+fn reorder_pages(request: ReorderPagesRequest) -> Result<PdfOperationResult, AppError> {
+    reorder_pages_impl(&request)
+}
+
+#[tauri::command]
 fn copy_document(request: CopyDocumentRequest) -> Result<PdfOperationResult, AppError> {
     copy_document_impl(&request)
 }
@@ -78,6 +84,7 @@ pub fn run() {
             delete_pages,
             duplicate_pages,
             insert_blank_page,
+            reorder_pages,
             copy_document
         ])
         .run(tauri::generate_context!())

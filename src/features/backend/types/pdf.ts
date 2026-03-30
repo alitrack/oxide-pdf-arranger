@@ -48,6 +48,12 @@ export interface InsertBlankPageRequest {
   outputPath: string;
 }
 
+export interface ReorderPagesRequest {
+  inputPath: string;
+  pageNumbers: number[];
+  outputPath: string;
+}
+
 export interface CopyDocumentRequest {
   inputPath: string;
   outputPath: string;

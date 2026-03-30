@@ -8,6 +8,24 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { PdfPageInfo } from "../../backend/types/pdf";
 import { computeVirtualGridWindow } from "../lib/virtualGrid";
 
@@ -20,6 +38,7 @@ interface PageGridProps {
   onResetZoom(): void;
   selectedPageNumbers: number[];
   onPageClick(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
+  onReorderPages(pageNumbers: number[]): void;
   onRotateSelected(rotationDegrees: 90 | 180 | 270): void;
   onDuplicateSelected(): void;
   onDeleteSelected(): void;
@@ -31,6 +50,13 @@ interface ContextMenuState {
   x: number;
   y: number;
   pageNumber: number;
+}
+
+interface SortablePageCardProps {
+  page: PdfPageInfo;
+  isSelected: boolean;
+  onOpenContextMenu(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
+  onSelectPage(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
 }
 
 function getAspectRatio(page: PdfPageInfo) {
@@ -55,6 +81,56 @@ function getSelectionMode(event: MouseEvent<HTMLButtonElement>) {
   return "replace" as const;
 }
 
+function SortablePageCard({
+  page,
+  isSelected,
+  onOpenContextMenu,
+  onSelectPage,
+}: SortablePageCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: page.pageNumber });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <button
+      {...attributes}
+      {...listeners}
+      aria-pressed={isSelected}
+      className={`page-card${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}`}
+      onClick={(event) => onSelectPage(event, page.pageNumber)}
+      onContextMenu={(event) => onOpenContextMenu(event, page.pageNumber)}
+      ref={setNodeRef}
+      style={style}
+      type="button"
+    >
+      <div className="page-preview-wrap">
+        <div className="page-preview" style={{ aspectRatio: getAspectRatio(page) }}>
+          <img
+            alt={`${getPageLabel(page)} preview`}
+            className="page-preview-image"
+            src={page.thumbnailDataUrl}
+          />
+          <span className="page-badge">{getPageLabel(page)}</span>
+          <div className="page-preview-center">
+            <strong>{page.pageNumber}</strong>
+            <small>{page.rotation}°</small>
+          </div>
+        </div>
+      </div>
+      <div className="page-meta">
+        <span>
+          {page.mediaBox[2] - page.mediaBox[0]} × {page.mediaBox[3] - page.mediaBox[1]}
+        </span>
+        <span>Rotate {page.rotation}°</span>
+      </div>
+    </button>
+  );
+}
+
 export function PageGrid({
   pages,
   isLoading,
@@ -64,6 +140,7 @@ export function PageGrid({
   onResetZoom,
   selectedPageNumbers,
   onPageClick,
+  onReorderPages,
   onRotateSelected,
   onDuplicateSelected,
   onDeleteSelected,
@@ -77,6 +154,11 @@ export function PageGrid({
   const [viewportWidth, setViewportWidth] = useState(gridItemWidth * 4);
   const [viewportHeight, setViewportHeight] = useState(720);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const virtualWindow = useMemo(
     () =>
       computeVirtualGridWindow({
@@ -181,6 +263,30 @@ export function PageGrid({
     }
   }
 
+  function handleDragEnd(event: DragEndEvent) {
+    const overId = event.over?.id;
+    if (!overId) {
+      return;
+    }
+
+    const activeId = Number(event.active.id);
+    const nextId = Number(overId);
+    if (activeId === nextId) {
+      return;
+    }
+
+    const activeIndex = pages.findIndex((page) => page.pageNumber === activeId);
+    const nextIndex = pages.findIndex((page) => page.pageNumber === nextId);
+    if (activeIndex === -1 || nextIndex === -1) {
+      return;
+    }
+
+    const reorderedPageNumbers = arrayMove(pages, activeIndex, nextIndex).map(
+      (page) => page.pageNumber,
+    );
+    onReorderPages(reorderedPageNumbers);
+  }
+
   return (
     <div className="page-grid-shell" style={gridStyle}>
       <div className="page-grid-header">
@@ -214,39 +320,30 @@ export function PageGrid({
         {pages.length > 0 ? (
           <div className="page-grid-virtual-stack">
             <div style={{ height: `${virtualWindow.paddingTop}px` }} />
-            <div className="page-grid">
-              {visiblePages.map((page) => (
-                <button
-                  aria-pressed={selectedPageNumbers.includes(page.pageNumber)}
-                  className={`page-card${selectedPageNumbers.includes(page.pageNumber) ? " selected" : ""}`}
-                  key={page.pageNumber}
-                  onClick={(event) => onPageClick(page.pageNumber, getSelectionMode(event))}
-                  onContextMenu={(event) => openContextMenu(event, page.pageNumber)}
-                  type="button"
-                >
-                  <div className="page-preview-wrap">
-                    <div className="page-preview" style={{ aspectRatio: getAspectRatio(page) }}>
-                      <img
-                        alt={`${getPageLabel(page)} preview`}
-                        className="page-preview-image"
-                        src={page.thumbnailDataUrl}
-                      />
-                      <span className="page-badge">{getPageLabel(page)}</span>
-                      <div className="page-preview-center">
-                        <strong>{page.pageNumber}</strong>
-                        <small>{page.rotation}°</small>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="page-meta">
-                    <span>
-                      {page.mediaBox[2] - page.mediaBox[0]} × {page.mediaBox[3] - page.mediaBox[1]}
-                    </span>
-                    <span>Rotate {page.rotation}°</span>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <DndContext
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+              sensors={sensors}
+            >
+              <SortableContext
+                items={pages.map((page) => page.pageNumber)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="page-grid">
+                  {visiblePages.map((page) => (
+                    <SortablePageCard
+                      isSelected={selectedPageNumbers.includes(page.pageNumber)}
+                      key={page.pageNumber}
+                      onOpenContextMenu={openContextMenu}
+                      onSelectPage={(event, pageNumber) =>
+                        onPageClick(pageNumber, getSelectionMode(event))
+                      }
+                      page={page}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
             <div style={{ height: `${virtualWindow.paddingBottom}px` }} />
           </div>
         ) : null}

@@ -7,6 +7,7 @@ import type {
   MergePdfRequest,
   PdfDocumentSummary,
   PdfOperationResult,
+  ReorderPagesRequest,
   RotatePdfRequest,
   SplitPdfRequest,
 } from "../types/pdf";
@@ -26,6 +27,10 @@ export const pdfBackend = {
 
   rotatePdf(request: RotatePdfRequest) {
     return invokeCommand<PdfOperationResult>("rotate_pdf", { request });
+  },
+
+  reorderPages(request: ReorderPagesRequest) {
+    return invokeCommand<PdfOperationResult>("reorder_pages", { request });
   },
 
   deletePages(request: DeletePagesRequest) {
