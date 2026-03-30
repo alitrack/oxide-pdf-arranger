@@ -1,7 +1,4 @@
-import { useState, useTransition } from "react";
-import { pdfBackend } from "../api/pdfBackend";
-import type { PdfDocumentSummary } from "../types/pdf";
-import { TauriInvokeError } from "../../../shared/lib/tauri";
+import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
 
 const operationCards = [
   {
@@ -39,32 +36,16 @@ function formatSize(box: [number, number, number, number]) {
 }
 
 export function BackendWorkspace() {
-  const [pdfPath, setPdfPath] = useState("");
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [documentSummary, setDocumentSummary] = useState<PdfDocumentSummary | null>(null);
-  const [isInspecting, startInspectTransition] = useTransition();
+  const pdfPath = usePdfDocumentStore((state) => state.draftPath);
+  const lastError = usePdfDocumentStore((state) => state.lastError);
+  const documentSummary = usePdfDocumentStore((state) => state.activeDocument);
+  const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
+  const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
+  const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLastError(null);
-
-    const nextPath = pdfPath.trim();
-    if (!nextPath) {
-      setLastError("请输入一个可访问的 PDF 绝对路径。");
-      return;
-    }
-
-    try {
-      const summary = await pdfBackend.inspectPdf(nextPath);
-      startInspectTransition(() => {
-        setDocumentSummary(summary);
-      });
-    } catch (error) {
-      const message =
-        error instanceof TauriInvokeError ? error.message : "Inspect PDF 失败。";
-      setDocumentSummary(null);
-      setLastError(message);
-    }
+    await inspectPdf();
   }
 
   return (
@@ -120,7 +101,7 @@ export function BackendWorkspace() {
               <input
                 name="pdfPath"
                 value={pdfPath}
-                onChange={(event) => setPdfPath(event.currentTarget.value)}
+                onChange={(event) => setDraftPath(event.currentTarget.value)}
                 placeholder="/absolute/path/to/document.pdf"
               />
             </label>
