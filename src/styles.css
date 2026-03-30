@@ -295,6 +295,26 @@ button {
   align-items: flex-start;
 }
 
+.summary-selection {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 999px;
+  background: rgba(176, 90, 60, 0.08);
+  color: var(--accent-strong);
+  width: fit-content;
+}
+
+.summary-selection span,
+.summary-selection small {
+  color: var(--ink-soft);
+}
+
+.summary-selection strong {
+  font-size: 1.1rem;
+}
+
 .summary-topline h3 {
   font-size: 1.4rem;
   line-height: 1.2;
@@ -366,6 +386,23 @@ button {
   background: rgba(255, 255, 255, 0.72);
   display: grid;
   gap: 12px;
+  text-align: left;
+}
+
+.page-card.selected {
+  border-color: rgba(176, 90, 60, 0.52);
+  box-shadow: 0 14px 34px rgba(176, 90, 60, 0.18);
+  background: rgba(255, 248, 244, 0.96);
+}
+
+.page-card:hover {
+  transform: translateY(-2px);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.page-card.selected .page-badge {
+  background: rgba(176, 90, 60, 0.14);
+  color: #7d321d;
 }
 
 .page-preview-wrap {

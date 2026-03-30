@@ -41,8 +41,10 @@ export function BackendWorkspace() {
   const lastError = usePdfDocumentStore((state) => state.lastError);
   const documentSummary = usePdfDocumentStore((state) => state.activeDocument);
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
+  const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
   const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
+  const selectPage = usePdfDocumentStore((state) => state.selectPage);
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -127,6 +129,12 @@ export function BackendWorkspace() {
                 </div>
               </div>
 
+              <div className="summary-selection">
+                <span>Selected</span>
+                <strong>{selectedPageNumbers.length}</strong>
+                <small>{selectedPageNumbers.join(", ") || "none"}</small>
+              </div>
+
               <div className="summary-metadata">
                 <div className="summary-field">
                   <span>First page size</span>
@@ -138,7 +146,12 @@ export function BackendWorkspace() {
                 </div>
               </div>
 
-              <PageGrid isLoading={isInspecting} pages={documentSummary.pages} />
+              <PageGrid
+                isLoading={isInspecting}
+                onPageClick={selectPage}
+                pages={documentSummary.pages}
+                selectedPageNumbers={selectedPageNumbers}
+              />
             </div>
           ) : (
             <div className="empty-state">
@@ -149,7 +162,14 @@ export function BackendWorkspace() {
             </div>
           )}
 
-          {!documentSummary && isInspecting ? <PageGrid isLoading={isInspecting} pages={[]} /> : null}
+          {!documentSummary && isInspecting ? (
+            <PageGrid
+              isLoading={isInspecting}
+              onPageClick={selectPage}
+              pages={[]}
+              selectedPageNumbers={selectedPageNumbers}
+            />
+          ) : null}
         </section>
       </main>
     </div>

@@ -1,8 +1,11 @@
+import type { MouseEvent } from "react";
 import type { PdfPageInfo } from "../../backend/types/pdf";
 
 interface PageGridProps {
   pages: PdfPageInfo[];
   isLoading: boolean;
+  selectedPageNumbers: number[];
+  onPageClick(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
 }
 
 function getAspectRatio(page: PdfPageInfo) {
@@ -15,7 +18,24 @@ function getPageLabel(page: PdfPageInfo) {
   return `Page ${page.pageNumber}`;
 }
 
-export function PageGrid({ pages, isLoading }: PageGridProps) {
+function getSelectionMode(event: MouseEvent<HTMLButtonElement>) {
+  if (event.shiftKey) {
+    return "range" as const;
+  }
+
+  if (event.metaKey || event.ctrlKey) {
+    return "toggle" as const;
+  }
+
+  return "replace" as const;
+}
+
+export function PageGrid({
+  pages,
+  isLoading,
+  selectedPageNumbers,
+  onPageClick,
+}: PageGridProps) {
   const skeletons = Array.from({ length: 6 }, (_, index) => `skeleton-${index}`);
 
   return (
@@ -42,7 +62,13 @@ export function PageGrid({ pages, isLoading }: PageGridProps) {
               </article>
             ))
           : pages.map((page) => (
-              <article className="page-card" key={page.pageNumber}>
+              <button
+                aria-pressed={selectedPageNumbers.includes(page.pageNumber)}
+                className={`page-card${selectedPageNumbers.includes(page.pageNumber) ? " selected" : ""}`}
+                key={page.pageNumber}
+                onClick={(event) => onPageClick(page.pageNumber, getSelectionMode(event))}
+                type="button"
+              >
                 <div className="page-preview-wrap">
                   <div className="page-preview" style={{ aspectRatio: getAspectRatio(page) }}>
                     <img
@@ -61,7 +87,7 @@ export function PageGrid({ pages, isLoading }: PageGridProps) {
                   <span>{page.mediaBox[2] - page.mediaBox[0]} × {page.mediaBox[3] - page.mediaBox[1]}</span>
                   <span>Rotate {page.rotation}°</span>
                 </div>
-              </article>
+              </button>
             ))}
       </div>
     </div>
