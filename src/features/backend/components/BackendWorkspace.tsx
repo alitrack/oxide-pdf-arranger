@@ -1,7 +1,9 @@
 import { useEffect } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
 import { PageGrid } from "../../documents/components/PageGrid";
 import { useWorkspaceTheme } from "../../workspace/hooks/useWorkspaceTheme";
+import { getSingleSelectedPath } from "../../files/lib/dialogSelection";
 
 const operationCards = [
   {
@@ -133,6 +135,29 @@ export function BackendWorkspace() {
     await inspectPdf();
   }
 
+  async function handleBrowseAndInspect() {
+    const selectedPath = getSingleSelectedPath(
+      await open({
+        directory: false,
+        filters: [
+          {
+            name: "PDF",
+            extensions: ["pdf"],
+          },
+        ],
+        multiple: false,
+        title: "Open PDF document",
+      }),
+    );
+
+    if (!selectedPath) {
+      return;
+    }
+
+    setDraftPath(selectedPath);
+    await inspectPdf(selectedPath);
+  }
+
   return (
     <div className="shell">
       <header className="hero">
@@ -210,6 +235,14 @@ export function BackendWorkspace() {
 
             <button className="primary-button" disabled={isInspecting} type="submit">
               {isInspecting ? "Inspecting..." : "Inspect PDF"}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={isInspecting}
+              onClick={() => void handleBrowseAndInspect()}
+              type="button"
+            >
+              Browse
             </button>
           </form>
 
