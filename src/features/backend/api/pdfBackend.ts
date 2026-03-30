@@ -1,5 +1,6 @@
 import { invokeCommand } from "../../../shared/lib/tauri";
 import type {
+  CropPdfRequest,
   CopyDocumentRequest,
   DeletePagesRequest,
   DuplicatePagesRequest,
@@ -28,6 +29,10 @@ export const pdfBackend = {
 
   rotatePdf(request: RotatePdfRequest) {
     return invokeCommand<PdfOperationResult>("rotate_pdf", { request });
+  },
+
+  cropPdf(request: CropPdfRequest) {
+    return invokeCommand<PdfOperationResult>("crop_pdf", { request });
   },
 
   reorderPages(request: ReorderPagesRequest) {

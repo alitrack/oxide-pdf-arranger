@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { pdfBackend } from "../../backend/api/pdfBackend";
-import type { PdfDocumentSummary } from "../../backend/types/pdf";
+import type { CropMargins, PdfDocumentSummary } from "../../backend/types/pdf";
 import { TauriInvokeError } from "../../../shared/lib/tauri";
 import { updateRecentFiles } from "../../files/lib/recentFiles";
 import {
@@ -91,6 +91,7 @@ interface PdfDocumentStoreState {
   isUndoing: boolean;
   isRedoing: boolean;
   isRotating: boolean;
+  isCropping: boolean;
   isReordering: boolean;
   isDeleting: boolean;
   isDuplicating: boolean;
@@ -117,6 +118,7 @@ interface PdfDocumentStoreState {
   ): Promise<void>;
   reorderPages(pageNumbers: number[]): Promise<void>;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
+  cropSelectedPages(margins: CropMargins): Promise<void>;
   saveDocumentAs(outputPath: string): Promise<void>;
   exportDocumentCopy(outputPath: string): Promise<void>;
   undoLastAction(): Promise<void>;
@@ -337,6 +339,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isUndoing: false,
   isRedoing: false,
   isRotating: false,
+  isCropping: false,
   isReordering: false,
   isDeleting: false,
   isDuplicating: false,
@@ -1149,6 +1152,88 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         })),
         isRotating: false,
         lastError: getOperationErrorMessage(error, "旋转页面失败。"),
+        lastOperationMessage: null,
+      });
+    }
+  },
+
+  async cropSelectedPages(margins) {
+    const { activeDocument, actionHistory, selectedPageNumbers } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (selectedPageNumbers.length === 0) {
+      set({
+        lastError: "请先选择要裁剪的页面。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    let pendingHistoryEntry: ActionHistoryEntry;
+
+    try {
+      pendingHistoryEntry = await createPendingHistoryEntry(
+        activeDocument.path,
+        `裁剪 ${selectedPageNumbers.length} 页`,
+      );
+    } catch (error) {
+      set({
+        lastError: getOperationErrorMessage(error, "记录撤销快照失败。"),
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isCropping: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.cropPdf({
+        inputPath: activeDocument.path,
+        outputPath: activeDocument.path,
+        pageNumbers: selectedPageNumbers,
+        margins,
+      });
+      const refreshedDocument = await pdfBackend.inspectPdf(activeDocument.path);
+      let nextActionHistory = actionHistory;
+      let nextOperationMessage = `已裁剪 ${selectedPageNumbers.length} 页。`;
+
+      try {
+        nextActionHistory = await finalizeHistoryEntry(
+          actionHistory,
+          activeDocument.path,
+          pendingHistoryEntry,
+        );
+      } catch {
+        nextOperationMessage += " 但未能记录撤销历史。";
+      }
+
+      set({
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: refreshedDocument,
+          actionHistory: nextActionHistory,
+          selectedPageNumbers,
+          selectionAnchorPage:
+            selectedPageNumbers[selectedPageNumbers.length - 1] ?? null,
+        })),
+        isCropping: false,
+        lastError: null,
+        lastOperationMessage: nextOperationMessage,
+      });
+    } catch (error) {
+      set({
+        isCropping: false,
+        lastError: getOperationErrorMessage(error, "裁剪页面失败。"),
         lastOperationMessage: null,
       });
     }

@@ -86,9 +86,18 @@ interface StaticPageCardProps {
 }
 
 function getAspectRatio(page: PdfPageInfo) {
-  const width = Math.max(page.mediaBox[2] - page.mediaBox[0], 1);
-  const height = Math.max(page.mediaBox[3] - page.mediaBox[1], 1);
+  const displayBox = page.cropBox ?? page.mediaBox;
+  const width = Math.max(displayBox[2] - displayBox[0], 1);
+  const height = Math.max(displayBox[3] - displayBox[1], 1);
   return `${width} / ${height}`;
+}
+
+function getDisplayDimensions(page: PdfPageInfo) {
+  const displayBox = page.cropBox ?? page.mediaBox;
+  return {
+    width: displayBox[2] - displayBox[0],
+    height: displayBox[3] - displayBox[1],
+  };
 }
 
 function getPageLabel(page: PdfPageInfo) {
@@ -108,6 +117,8 @@ function getSelectionMode(event: MouseEvent<HTMLButtonElement>) {
 }
 
 function PageCardContent({ page }: { page: PdfPageInfo }) {
+  const dimensions = getDisplayDimensions(page);
+
   return (
     <>
       <div className="page-preview-wrap">
@@ -118,6 +129,7 @@ function PageCardContent({ page }: { page: PdfPageInfo }) {
             src={page.thumbnailDataUrl}
           />
           <span className="page-badge">{getPageLabel(page)}</span>
+          {page.cropBox ? <span className="page-badge crop">Cropped</span> : null}
           <div className="page-preview-center">
             <strong>{page.pageNumber}</strong>
             <small>{page.rotation}°</small>
@@ -126,9 +138,9 @@ function PageCardContent({ page }: { page: PdfPageInfo }) {
       </div>
       <div className="page-meta">
         <span>
-          {page.mediaBox[2] - page.mediaBox[0]} × {page.mediaBox[3] - page.mediaBox[1]}
+          {dimensions.width} × {dimensions.height}
         </span>
-        <span>Rotate {page.rotation}°</span>
+        <span>{page.cropBox ? "Crop applied" : `Rotate ${page.rotation}°`}</span>
       </div>
     </>
   );

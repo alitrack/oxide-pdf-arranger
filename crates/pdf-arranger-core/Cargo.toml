@@ -11,6 +11,7 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 lopdf = "0.39"
 pdf-core = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
+pdf-crop = { path = "../pdf-crop" }
 pdf-merge = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
 pdf-page-range = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
 pdf-rotate = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }

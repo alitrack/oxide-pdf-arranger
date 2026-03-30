@@ -2708,6 +2708,7 @@ dependencies = [
  "image",
  "lopdf",
  "pdf-core",
+ "pdf-crop",
  "pdf-merge",
  "pdf-page-range",
  "pdf-rotate",

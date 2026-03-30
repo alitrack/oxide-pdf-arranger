@@ -2,6 +2,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use image::{imageops, ImageBuffer, Rgba};
 use lopdf::{dictionary, Document, Object, ObjectId, Stream};
 use pdf_core::{InputSource, PdfDocument, PdfError};
+use pdf_crop::{crop_page_box, CropError, CropMargins, PageBox};
 use pdf_merge::MergeEngine;
 use pdf_page_range::{PageNum, PageRange, Qualifier, Rotation};
 use pdf_rotate::RotateEngine;
@@ -99,6 +100,15 @@ pub struct RotatePdfRequest {
     pub input_path: String,
     pub page_numbers: Vec<u32>,
     pub rotation_degrees: i32,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CropPdfRequest {
+    pub input_path: String,
+    pub page_numbers: Vec<u32>,
+    pub margins: CropMargins,
     pub output_path: String,
 }
 
@@ -275,6 +285,61 @@ pub fn rotate_pdf(request: &RotatePdfRequest) -> AppResult<PdfOperationResult> {
         "Rotating PDF pages"
     );
     RotateEngine::rotate_pages(&mut doc, &request.page_numbers, request.rotation_degrees)?;
+    doc.save(&request.output_path)?;
+
+    Ok(PdfOperationResult {
+        output_path: request.output_path.clone(),
+        page_count: page_count as u32,
+    })
+}
+
+pub fn crop_pdf(request: &CropPdfRequest) -> AppResult<PdfOperationResult> {
+    validate_path(&request.input_path, "input_path")?;
+    validate_path(&request.output_path, "output_path")?;
+    validate_page_numbers_not_empty(&request.page_numbers)?;
+    ensure_output_parent(&request.output_path)?;
+
+    let mut doc = PdfDocument::load(&request.input_path)?;
+    let page_count = doc.page_count();
+    validate_page_numbers_exist(page_count, &request.page_numbers)?;
+
+    info!(
+        input_path = request.input_path,
+        output_path = request.output_path,
+        page_numbers = ?request.page_numbers,
+        margins = ?request.margins,
+        "Cropping PDF pages"
+    );
+
+    for &page_number in &request.page_numbers {
+        let page_id = doc
+            .get_page_id(page_number)
+            .ok_or_else(|| {
+                AppError::InvalidRequest(format!(
+                    "page {page_number} is out of range for a document with {page_count} pages"
+                ))
+            })?;
+        let media_box = find_page_box(&doc.inner, page_id, b"MediaBox").unwrap_or(DEFAULT_MEDIA_BOX);
+        let current_box = find_page_box(&doc.inner, page_id, b"CropBox").unwrap_or(media_box);
+        let next_crop_box = crop_page_box(
+            page_box_from_array(current_box),
+            request.margins,
+        )
+        .map_err(map_crop_error)?;
+        let crop_box_object = page_box_to_object(next_crop_box);
+        let page = doc
+            .inner
+            .objects
+            .get_mut(&page_id)
+            .ok_or_else(|| AppError::InvalidRequest(format!("page {page_number} is unavailable")))?;
+        let Object::Dictionary(page_dict) = page else {
+            return Err(AppError::InvalidRequest(format!(
+                "page {page_number} is unavailable"
+            )));
+        };
+        page_dict.set("CropBox", crop_box_object);
+    }
+
     doc.save(&request.output_path)?;
 
     Ok(PdfOperationResult {
@@ -743,6 +808,35 @@ fn write_blank_page_pdf(path: &Path, media_box: [f32; 4]) -> AppResult<()> {
     doc.compress();
     doc.save(path)?;
     Ok(())
+}
+
+fn page_box_from_array(values: [f32; 4]) -> PageBox {
+    PageBox {
+        left: values[0],
+        bottom: values[1],
+        right: values[2],
+        top: values[3],
+    }
+}
+
+fn page_box_to_object(page_box: PageBox) -> Object {
+    Object::Array(vec![
+        page_box.left.into(),
+        page_box.bottom.into(),
+        page_box.right.into(),
+        page_box.top.into(),
+    ])
+}
+
+fn map_crop_error(error: CropError) -> AppError {
+    match error {
+        CropError::NegativeMargin => {
+            AppError::InvalidRequest("crop margins cannot be negative".to_string())
+        }
+        CropError::MarginExceedsPage => {
+            AppError::InvalidRequest("crop margins exceed the page bounds".to_string())
+        }
+    }
 }
 
 fn find_page_box(doc: &Document, page_id: ObjectId, key: &[u8]) -> Option<[f32; 4]> {
@@ -1356,5 +1450,56 @@ mod tests {
             matches!(error, AppError::InvalidRequest(_)),
             "expected validation error, got {error:?}"
         );
+    }
+
+    #[test]
+    fn crop_pdf_updates_crop_box_for_selected_pages() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("crop-input.pdf");
+        create_text_fixture_with_pages(&input, &[("Crop", 612, 792, 0)]);
+
+        let result = crop_pdf(&CropPdfRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            output_path: input.to_string_lossy().into_owned(),
+            page_numbers: vec![1],
+            margins: CropMargins {
+                left: 10.0,
+                right: 20.0,
+                top: 30.0,
+                bottom: 40.0,
+            },
+        })
+        .expect("crop should succeed");
+
+        assert_eq!(result.page_count, 1);
+
+        let summary = inspect_pdf(&input.to_string_lossy()).expect("inspect should succeed");
+        assert_eq!(summary.pages[0].crop_box, Some([10.0, 40.0, 592.0, 762.0]));
+    }
+
+    #[test]
+    fn crop_pdf_rejects_margins_that_exceed_the_page() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("crop-invalid.pdf");
+        create_text_fixture_with_pages(&input, &[("Crop", 612, 792, 0)]);
+
+        let error = crop_pdf(&CropPdfRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            output_path: input.to_string_lossy().into_owned(),
+            page_numbers: vec![1],
+            margins: CropMargins {
+                left: 400.0,
+                right: 300.0,
+                top: 0.0,
+                bottom: 0.0,
+            },
+        })
+        .expect_err("oversized crop should fail");
+
+        assert!(
+            matches!(error, AppError::InvalidRequest(_)),
+            "expected validation error, got {error:?}"
+        );
+        assert!(error.to_string().contains("crop margins exceed the page bounds"));
     }
 }

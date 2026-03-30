@@ -12,6 +12,7 @@ import {
   getSingleSelectedPath,
 } from "../../files/lib/dialogSelection";
 import { hasWorkspaceDocumentSessionHistory } from "../../documents/lib/workspaceDocuments";
+import { CropEditorModal } from "../../crop/components/CropEditorModal";
 
 const operationCards = [
   {
@@ -88,6 +89,7 @@ export function BackendWorkspace() {
   const isUndoing = usePdfDocumentStore((state) => state.isUndoing);
   const isRedoing = usePdfDocumentStore((state) => state.isRedoing);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
+  const isCropping = usePdfDocumentStore((state) => state.isCropping);
   const isReordering = usePdfDocumentStore((state) => state.isReordering);
   const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
   const isDuplicating = usePdfDocumentStore((state) => state.isDuplicating);
@@ -114,6 +116,7 @@ export function BackendWorkspace() {
   const rotateSelectedPages = usePdfDocumentStore(
     (state) => state.rotateSelectedPages,
   );
+  const cropSelectedPages = usePdfDocumentStore((state) => state.cropSelectedPages);
   const reorderPages = usePdfDocumentStore((state) => state.reorderPages);
   const saveDocumentAs = usePdfDocumentStore((state) => state.saveDocumentAs);
   const exportDocumentCopy = usePdfDocumentStore(
@@ -137,6 +140,7 @@ export function BackendWorkspace() {
     isUndoing ||
     isRedoing ||
     isRotating ||
+    isCropping ||
     isReordering ||
     isDeleting ||
     isDuplicating ||
@@ -151,10 +155,17 @@ export function BackendWorkspace() {
     mergeSelectionDocumentIds.includes(session.id),
   );
   const hasSessionHistory = openDocuments.some(hasWorkspaceDocumentSessionHistory);
+  const selectedCropPage =
+    selectedPageNumbers.length > 0
+      ? documentSummary?.pages.find(
+          (page) => page.pageNumber === selectedPageNumbers[0],
+        ) ?? null
+      : null;
   const [crossDocumentDrag, setCrossDocumentDrag] = useState<{
     sourcePageNumber: number;
     targetPageNumber: number | null;
   } | null>(null);
+  const [isCropEditorOpen, setIsCropEditorOpen] = useState(false);
 
   useEffect(() => {
     void restoreWorkspace();
@@ -332,6 +343,16 @@ export function BackendWorkspace() {
     }
 
     await mergeSelectedDocuments(outputPath);
+  }
+
+  async function handleApplyCrop(margins: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }) {
+    await cropSelectedPages(margins);
+    setIsCropEditorOpen(false);
   }
 
   async function handleDropOnSecondaryDocument(targetPageNumber: number | null) {
@@ -656,6 +677,14 @@ export function BackendWorkspace() {
                     <button
                       className="secondary-button"
                       disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                      onClick={() => setIsCropEditorOpen(true)}
+                      type="button"
+                    >
+                      {isCropping ? "Cropping..." : "Crop"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
                       onClick={() => insertBlankPageAfterSelection()}
                       type="button"
                     >
@@ -852,6 +881,15 @@ export function BackendWorkspace() {
               </small>
             </div>
           )}
+
+          <CropEditorModal
+            isApplying={isCropping}
+            isOpen={isCropEditorOpen && !!selectedCropPage}
+            onApply={(margins) => void handleApplyCrop(margins)}
+            onClose={() => setIsCropEditorOpen(false)}
+            page={selectedCropPage}
+            selectedPageCount={selectedPageNumbers.length}
+          />
 
           {!documentSummary && isInspecting ? (
             <PageGrid

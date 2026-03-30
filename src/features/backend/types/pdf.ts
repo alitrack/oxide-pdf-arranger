@@ -30,6 +30,20 @@ export interface RotatePdfRequest {
   outputPath: string;
 }
 
+export interface CropMargins {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export interface CropPdfRequest {
+  inputPath: string;
+  pageNumbers: number[];
+  margins: CropMargins;
+  outputPath: string;
+}
+
 export interface DeletePagesRequest {
   inputPath: string;
   pageNumbers: number[];
