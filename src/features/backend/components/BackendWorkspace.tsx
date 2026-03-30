@@ -2,6 +2,10 @@ import { useEffect } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
 import { PageGrid } from "../../documents/components/PageGrid";
+import {
+  describeRedoAction,
+  describeUndoAction,
+} from "../../documents/lib/actionHistory";
 import { useWorkspaceTheme } from "../../workspace/hooks/useWorkspaceTheme";
 import {
   getSingleSavePath,
@@ -67,6 +71,8 @@ export function BackendWorkspace() {
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
   const isSaving = usePdfDocumentStore((state) => state.isSaving);
   const isExporting = usePdfDocumentStore((state) => state.isExporting);
+  const isUndoing = usePdfDocumentStore((state) => state.isUndoing);
+  const isRedoing = usePdfDocumentStore((state) => state.isRedoing);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
   const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
   const isDuplicating = usePdfDocumentStore((state) => state.isDuplicating);
@@ -74,6 +80,7 @@ export function BackendWorkspace() {
   const recentFiles = usePdfDocumentStore((state) => state.recentFiles);
   const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
   const gridItemWidth = usePdfDocumentStore((state) => state.gridItemWidth);
+  const actionHistory = usePdfDocumentStore((state) => state.actionHistory);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
   const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
@@ -84,6 +91,8 @@ export function BackendWorkspace() {
   const exportDocumentCopy = usePdfDocumentStore(
     (state) => state.exportDocumentCopy,
   );
+  const undoLastAction = usePdfDocumentStore((state) => state.undoLastAction);
+  const redoLastAction = usePdfDocumentStore((state) => state.redoLastAction);
   const deleteSelectedPages = usePdfDocumentStore(
     (state) => state.deleteSelectedPages,
   );
@@ -97,12 +106,29 @@ export function BackendWorkspace() {
   const zoomOutGrid = usePdfDocumentStore((state) => state.zoomOutGrid);
   const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
   const isApplyingPageAction =
-    isRotating || isDeleting || isDuplicating || isInsertingBlank;
-  const isFileActionBusy = isInspecting || isSaving || isExporting;
+    isUndoing ||
+    isRedoing ||
+    isRotating ||
+    isDeleting ||
+    isDuplicating ||
+    isInsertingBlank;
+  const isFileActionBusy = isInspecting || isSaving || isExporting || isApplyingPageAction;
+  const nextUndoLabel = describeUndoAction(actionHistory);
+  const nextRedoLabel = describeRedoAction(actionHistory);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!documentSummary || isApplyingPageAction || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          void redoLastAction();
+        } else {
+          void undoLastAction();
+        }
         return;
       }
 
@@ -138,7 +164,9 @@ export function BackendWorkspace() {
     duplicateSelectedPages,
     insertBlankPageAfterSelection,
     isApplyingPageAction,
+    redoLastAction,
     rotateSelectedPages,
+    undoLastAction,
   ]);
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
@@ -366,6 +394,30 @@ export function BackendWorkspace() {
                 </div>
 
                 <div className="page-action-bar">
+                  <span>History</span>
+                  <div className="page-action-buttons">
+                    <button
+                      className="secondary-button"
+                      disabled={!nextUndoLabel || isApplyingPageAction}
+                      onClick={() => void undoLastAction()}
+                      title={nextUndoLabel ? `撤销: ${nextUndoLabel}` : "没有可撤销的操作"}
+                      type="button"
+                    >
+                      {isUndoing ? "Undoing..." : "Undo"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={!nextRedoLabel || isApplyingPageAction}
+                      onClick={() => void redoLastAction()}
+                      title={nextRedoLabel ? `重做: ${nextRedoLabel}` : "没有可重做的操作"}
+                      type="button"
+                    >
+                      {isRedoing ? "Redoing..." : "Redo"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="page-action-bar">
                   <span>File actions</span>
                   <div className="page-action-buttons">
                     <button
@@ -459,6 +511,8 @@ export function BackendWorkspace() {
               <div className="workspace-statusbar">
                 <span>Page count: {documentSummary.pageCount}</span>
                 <span>Selected: {selectedPageNumbers.length}</span>
+                <span>Undo: {actionHistory.undoStack.length}</span>
+                <span>Redo: {actionHistory.redoStack.length}</span>
                 <span>Grid width: {gridItemWidth}px</span>
                 <span>Theme: {resolvedTheme}</span>
                 <span className="statusbar-path">{documentSummary.path}</span>
@@ -475,6 +529,12 @@ export function BackendWorkspace() {
                   </span>
                   <span>
                     <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicate
+                  </span>
+                  <span>
+                    <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undo
+                  </span>
+                  <span>
+                    <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> redo
                   </span>
                   <span>
                     <kbd>B</kbd> insert blank after selection

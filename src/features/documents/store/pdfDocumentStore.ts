@@ -4,6 +4,15 @@ import type { PdfDocumentSummary } from "../../backend/types/pdf";
 import { TauriInvokeError } from "../../../shared/lib/tauri";
 import { updateRecentFiles } from "../../files/lib/recentFiles";
 import {
+  createEmptyActionHistory,
+  pushHistoryEntry,
+  redoHistoryEntry,
+  undoHistoryEntry,
+  type ActionHistoryEntry,
+  type ActionHistoryState,
+} from "../lib/actionHistory";
+import { buildHistorySnapshotPaths } from "../lib/historySnapshots";
+import {
   applyRotationPreview,
   createInPlaceRotateRequest,
 } from "../lib/rotationPreview";
@@ -48,6 +57,8 @@ interface PdfDocumentStoreState {
   isInspecting: boolean;
   isSaving: boolean;
   isExporting: boolean;
+  isUndoing: boolean;
+  isRedoing: boolean;
   isRotating: boolean;
   isDeleting: boolean;
   isDuplicating: boolean;
@@ -56,12 +67,15 @@ interface PdfDocumentStoreState {
   selectedPageNumbers: number[];
   selectionAnchorPage: number | null;
   gridItemWidth: number;
+  actionHistory: ActionHistoryState;
   setDraftPath(nextPath: string): void;
   inspectPdf(path?: string): Promise<void>;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
   saveDocumentAs(outputPath: string): Promise<void>;
   exportDocumentCopy(outputPath: string): Promise<void>;
+  undoLastAction(): Promise<void>;
+  redoLastAction(): Promise<void>;
   deleteSelectedPages(): Promise<void>;
   duplicateSelectedPages(): Promise<void>;
   insertBlankPageAfterSelection(): Promise<void>;
@@ -70,8 +84,97 @@ interface PdfDocumentStoreState {
   resetGridZoom(): void;
 }
 
+function createHistoryActionId(label: string) {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "action";
+
+  return `${slug}-${Date.now()}`;
+}
+
+async function createPendingHistoryEntry(
+  documentPath: string,
+  label: string,
+): Promise<ActionHistoryEntry> {
+  const actionId = createHistoryActionId(label);
+  const { beforeSnapshotPath, afterSnapshotPath } = buildHistorySnapshotPaths(
+    documentPath,
+    actionId,
+  );
+
+  await pdfBackend.copyDocument({
+    inputPath: documentPath,
+    outputPath: beforeSnapshotPath,
+  });
+
+  return {
+    id: actionId,
+    label,
+    beforeSnapshotPath,
+    afterSnapshotPath,
+  };
+}
+
+async function finalizeHistoryEntry(
+  history: ActionHistoryState,
+  documentPath: string,
+  entry: ActionHistoryEntry,
+): Promise<ActionHistoryState> {
+  await pdfBackend.copyDocument({
+    inputPath: documentPath,
+    outputPath: entry.afterSnapshotPath,
+  });
+
+  return pushHistoryEntry(history, entry);
+}
+
+async function restoreDocumentSnapshot(
+  documentPath: string,
+  snapshotPath: string,
+): Promise<PdfDocumentSummary> {
+  await pdfBackend.copyDocument({
+    inputPath: snapshotPath,
+    outputPath: documentPath,
+  });
+
+  return pdfBackend.inspectPdf(documentPath);
+}
+
+function getDefaultSelection(document: PdfDocumentSummary | null) {
+  const firstPageNumber = document?.pages[0]?.pageNumber ?? null;
+
+  return {
+    selectedPageNumbers: firstPageNumber === null ? [] : [firstPageNumber],
+    selectionAnchorPage: firstPageNumber,
+  };
+}
+
+function getBoundSelection(
+  document: PdfDocumentSummary,
+  selectedPageNumbers: number[],
+) {
+  const nextSelectedPageNumbers = selectedPageNumbers.filter(
+    (pageNumber) => pageNumber >= 1 && pageNumber <= document.pageCount,
+  );
+
+  if (nextSelectedPageNumbers.length === 0) {
+    return getDefaultSelection(document);
+  }
+
+  return {
+    selectedPageNumbers: nextSelectedPageNumbers,
+    selectionAnchorPage:
+      nextSelectedPageNumbers[nextSelectedPageNumbers.length - 1] ?? null,
+  };
+}
+
 function getInspectErrorMessage(error: unknown) {
   return error instanceof TauriInvokeError ? error.message : "Inspect PDF 失败。";
+}
+
+function getOperationErrorMessage(error: unknown, fallback: string) {
+  return error instanceof TauriInvokeError ? error.message : fallback;
 }
 
 export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => ({
@@ -82,6 +185,8 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isInspecting: false,
   isSaving: false,
   isExporting: false,
+  isUndoing: false,
+  isRedoing: false,
   isRotating: false,
   isDeleting: false,
   isDuplicating: false,
@@ -90,6 +195,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   selectedPageNumbers: [],
   selectionAnchorPage: null,
   gridItemWidth: DEFAULT_GRID_ITEM_WIDTH,
+  actionHistory: createEmptyActionHistory(),
 
   setDraftPath(nextPath) {
     set({ draftPath: nextPath });
@@ -102,6 +208,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         activeDocument: null,
         lastError: "请输入一个可访问的 PDF 绝对路径。",
         lastOperationMessage: null,
+        actionHistory: createEmptyActionHistory(),
         selectedPageNumbers: [],
         selectionAnchorPage: null,
       });
@@ -129,9 +236,9 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         isInspecting: false,
         lastError: null,
         lastOperationMessage: null,
+        actionHistory: createEmptyActionHistory(),
         recentFiles,
-        selectedPageNumbers: activeDocument.pages[0] ? [activeDocument.pages[0].pageNumber] : [],
-        selectionAnchorPage: activeDocument.pages[0]?.pageNumber ?? null,
+        ...getDefaultSelection(activeDocument),
       });
     } catch (error) {
       set({
@@ -139,6 +246,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         isInspecting: false,
         lastError: getInspectErrorMessage(error),
         lastOperationMessage: null,
+        actionHistory: createEmptyActionHistory(),
         selectedPageNumbers: [],
         selectionAnchorPage: null,
       });
@@ -194,7 +302,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   },
 
   async rotateSelectedPages(rotationDegrees) {
-    const { activeDocument, selectedPageNumbers } = get();
+    const { activeDocument, actionHistory, selectedPageNumbers } = get();
     if (!activeDocument) {
       set({
         lastError: "请先加载一个 PDF 文档。",
@@ -219,6 +327,20 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       selectedPageNumbers,
       rotationDegrees,
     );
+    let pendingHistoryEntry: ActionHistoryEntry;
+
+    try {
+      pendingHistoryEntry = await createPendingHistoryEntry(
+        previousDocument.path,
+        `旋转 ${selectedPageNumbers.length} 页（${rotationDegrees}°）`,
+      );
+    } catch (error) {
+      set({
+        lastError: getOperationErrorMessage(error, "记录撤销快照失败。"),
+        lastOperationMessage: null,
+      });
+      return;
+    }
 
     set({
       activeDocument: optimisticDocument,
@@ -237,12 +359,25 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         ),
       );
       const refreshedDocument = await pdfBackend.inspectPdf(previousDocument.path);
+      let nextActionHistory = actionHistory;
+      let nextOperationMessage = `已旋转 ${selectedPageNumbers.length} 页（${rotationDegrees}°）。`;
+
+      try {
+        nextActionHistory = await finalizeHistoryEntry(
+          actionHistory,
+          previousDocument.path,
+          pendingHistoryEntry,
+        );
+      } catch {
+        nextOperationMessage += " 但未能记录撤销历史。";
+      }
 
       set({
         activeDocument: refreshedDocument,
+        actionHistory: nextActionHistory,
         isRotating: false,
         lastError: null,
-        lastOperationMessage: `已旋转 ${selectedPageNumbers.length} 页（${rotationDegrees}°）。`,
+        lastOperationMessage: nextOperationMessage,
         selectedPageNumbers,
         selectionAnchorPage,
       });
@@ -250,7 +385,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       set({
         activeDocument: previousDocument,
         isRotating: false,
-        lastError: error instanceof TauriInvokeError ? error.message : "旋转页面失败。",
+        lastError: getOperationErrorMessage(error, "旋转页面失败。"),
         lastOperationMessage: null,
         selectedPageNumbers,
         selectionAnchorPage,
@@ -303,14 +438,9 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         isSaving: false,
         lastError: null,
         lastOperationMessage: `已另存为 ${nextOutputPath}。`,
+        actionHistory: createEmptyActionHistory(),
         recentFiles: nextRecentFiles,
-        selectedPageNumbers: selectedPageNumbers.filter(
-          (pageNumber) => pageNumber <= refreshedDocument.pageCount,
-        ),
-        selectionAnchorPage:
-          selectedPageNumbers[selectedPageNumbers.length - 1] ??
-          refreshedDocument.pages[0]?.pageNumber ??
-          null,
+        ...getBoundSelection(refreshedDocument, selectedPageNumbers),
       });
     } catch (error) {
       set({
@@ -369,15 +499,102 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     } catch (error) {
       set({
         isExporting: false,
-        lastError:
-          error instanceof TauriInvokeError ? error.message : "导出 PDF 副本失败。",
+        lastError: getOperationErrorMessage(error, "导出 PDF 副本失败。"),
+        lastOperationMessage: null,
+      });
+    }
+  },
+
+  async undoLastAction() {
+    const { activeDocument, actionHistory } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const transition = undoHistoryEntry(actionHistory);
+    if (!transition.entry) {
+      return;
+    }
+
+    set({
+      isUndoing: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      const restoredDocument = await restoreDocumentSnapshot(
+        activeDocument.path,
+        transition.entry.beforeSnapshotPath,
+      );
+
+      set({
+        activeDocument: restoredDocument,
+        actionHistory: transition.history,
+        isUndoing: false,
+        lastError: null,
+        lastOperationMessage: `已撤销：${transition.entry.label}。`,
+        ...getDefaultSelection(restoredDocument),
+      });
+    } catch (error) {
+      set({
+        isUndoing: false,
+        lastError: getOperationErrorMessage(error, "撤销操作失败。"),
+        lastOperationMessage: null,
+      });
+    }
+  },
+
+  async redoLastAction() {
+    const { activeDocument, actionHistory } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const transition = redoHistoryEntry(actionHistory);
+    if (!transition.entry) {
+      return;
+    }
+
+    set({
+      isRedoing: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      const restoredDocument = await restoreDocumentSnapshot(
+        activeDocument.path,
+        transition.entry.afterSnapshotPath,
+      );
+
+      set({
+        activeDocument: restoredDocument,
+        actionHistory: transition.history,
+        isRedoing: false,
+        lastError: null,
+        lastOperationMessage: `已重做：${transition.entry.label}。`,
+        ...getDefaultSelection(restoredDocument),
+      });
+    } catch (error) {
+      set({
+        isRedoing: false,
+        lastError: getOperationErrorMessage(error, "重做操作失败。"),
         lastOperationMessage: null,
       });
     }
   },
 
   async deleteSelectedPages() {
-    const { activeDocument, selectedPageNumbers } = get();
+    const { activeDocument, actionHistory, selectedPageNumbers } = get();
     if (!activeDocument) {
       set({
         lastError: "请先加载一个 PDF 文档。",
@@ -402,6 +619,21 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       return;
     }
 
+    let pendingHistoryEntry: ActionHistoryEntry;
+
+    try {
+      pendingHistoryEntry = await createPendingHistoryEntry(
+        activeDocument.path,
+        `删除 ${selectedPageNumbers.length} 页`,
+      );
+    } catch (error) {
+      set({
+        lastError: getOperationErrorMessage(error, "记录撤销快照失败。"),
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
     set({
       isDeleting: true,
       lastError: null,
@@ -418,26 +650,39 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       const nextSelectedPages = refreshedDocument.pages[0]
         ? [refreshedDocument.pages[0].pageNumber]
         : [];
+      let nextActionHistory = actionHistory;
+      let nextOperationMessage = `已删除 ${selectedPageNumbers.length} 页。`;
+
+      try {
+        nextActionHistory = await finalizeHistoryEntry(
+          actionHistory,
+          activeDocument.path,
+          pendingHistoryEntry,
+        );
+      } catch {
+        nextOperationMessage += " 但未能记录撤销历史。";
+      }
 
       set({
         activeDocument: refreshedDocument,
+        actionHistory: nextActionHistory,
         isDeleting: false,
         lastError: null,
-        lastOperationMessage: `已删除 ${selectedPageNumbers.length} 页。`,
+        lastOperationMessage: nextOperationMessage,
         selectedPageNumbers: nextSelectedPages,
         selectionAnchorPage: nextSelectedPages[0] ?? null,
       });
     } catch (error) {
       set({
         isDeleting: false,
-        lastError: error instanceof TauriInvokeError ? error.message : "删除页面失败。",
+        lastError: getOperationErrorMessage(error, "删除页面失败。"),
         lastOperationMessage: null,
       });
     }
   },
 
   async duplicateSelectedPages() {
-    const { activeDocument, selectedPageNumbers } = get();
+    const { activeDocument, actionHistory, selectedPageNumbers } = get();
     if (!activeDocument) {
       set({
         lastError: "请先加载一个 PDF 文档。",
@@ -449,6 +694,21 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     if (selectedPageNumbers.length === 0) {
       set({
         lastError: "请先选择要复制的页面。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    let pendingHistoryEntry: ActionHistoryEntry;
+
+    try {
+      pendingHistoryEntry = await createPendingHistoryEntry(
+        activeDocument.path,
+        `复制 ${selectedPageNumbers.length} 页`,
+      );
+    } catch (error) {
+      set({
+        lastError: getOperationErrorMessage(error, "记录撤销快照失败。"),
         lastOperationMessage: null,
       });
       return;
@@ -470,12 +730,25 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       const duplicatedPageNumbers = selectedPageNumbers
         .map((pageNumber, index) => pageNumber + index + 1)
         .filter((pageNumber) => pageNumber <= refreshedDocument.pageCount);
+      let nextActionHistory = actionHistory;
+      let nextOperationMessage = `已复制 ${selectedPageNumbers.length} 页。`;
+
+      try {
+        nextActionHistory = await finalizeHistoryEntry(
+          actionHistory,
+          activeDocument.path,
+          pendingHistoryEntry,
+        );
+      } catch {
+        nextOperationMessage += " 但未能记录撤销历史。";
+      }
 
       set({
         activeDocument: refreshedDocument,
+        actionHistory: nextActionHistory,
         isDuplicating: false,
         lastError: null,
-        lastOperationMessage: `已复制 ${selectedPageNumbers.length} 页。`,
+        lastOperationMessage: nextOperationMessage,
         selectedPageNumbers: duplicatedPageNumbers,
         selectionAnchorPage:
           duplicatedPageNumbers[duplicatedPageNumbers.length - 1] ?? null,
@@ -483,14 +756,14 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     } catch (error) {
       set({
         isDuplicating: false,
-        lastError: error instanceof TauriInvokeError ? error.message : "复制页面失败。",
+        lastError: getOperationErrorMessage(error, "复制页面失败。"),
         lastOperationMessage: null,
       });
     }
   },
 
   async insertBlankPageAfterSelection() {
-    const { activeDocument, selectedPageNumbers } = get();
+    const { activeDocument, actionHistory, selectedPageNumbers } = get();
     if (!activeDocument) {
       set({
         lastError: "请先加载一个 PDF 文档。",
@@ -508,6 +781,20 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     }
 
     const afterPageNumber = selectedPageNumbers[selectedPageNumbers.length - 1];
+    let pendingHistoryEntry: ActionHistoryEntry;
+
+    try {
+      pendingHistoryEntry = await createPendingHistoryEntry(
+        activeDocument.path,
+        `在第 ${afterPageNumber} 页后插入空白页`,
+      );
+    } catch (error) {
+      set({
+        lastError: getOperationErrorMessage(error, "记录撤销快照失败。"),
+        lastOperationMessage: null,
+      });
+      return;
+    }
 
     set({
       isInsertingBlank: true,
@@ -523,20 +810,32 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       });
       const refreshedDocument = await pdfBackend.inspectPdf(activeDocument.path);
       const insertedPageNumber = Math.min(afterPageNumber + 1, refreshedDocument.pageCount);
+      let nextActionHistory = actionHistory;
+      let nextOperationMessage = `已在第 ${afterPageNumber} 页后插入空白页。`;
+
+      try {
+        nextActionHistory = await finalizeHistoryEntry(
+          actionHistory,
+          activeDocument.path,
+          pendingHistoryEntry,
+        );
+      } catch {
+        nextOperationMessage += " 但未能记录撤销历史。";
+      }
 
       set({
         activeDocument: refreshedDocument,
+        actionHistory: nextActionHistory,
         isInsertingBlank: false,
         lastError: null,
-        lastOperationMessage: `已在第 ${afterPageNumber} 页后插入空白页。`,
+        lastOperationMessage: nextOperationMessage,
         selectedPageNumbers: [insertedPageNumber],
         selectionAnchorPage: insertedPageNumber,
       });
     } catch (error) {
       set({
         isInsertingBlank: false,
-        lastError:
-          error instanceof TauriInvokeError ? error.message : "插入空白页失败。",
+        lastError: getOperationErrorMessage(error, "插入空白页失败。"),
         lastOperationMessage: null,
       });
     }
