@@ -39,13 +39,20 @@ function formatSize(box: [number, number, number, number]) {
 export function BackendWorkspace() {
   const pdfPath = usePdfDocumentStore((state) => state.draftPath);
   const lastError = usePdfDocumentStore((state) => state.lastError);
+  const lastOperationMessage = usePdfDocumentStore(
+    (state) => state.lastOperationMessage,
+  );
   const documentSummary = usePdfDocumentStore((state) => state.activeDocument);
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
+  const isRotating = usePdfDocumentStore((state) => state.isRotating);
   const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
   const gridItemWidth = usePdfDocumentStore((state) => state.gridItemWidth);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
   const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
+  const rotateSelectedPages = usePdfDocumentStore(
+    (state) => state.rotateSelectedPages,
+  );
   const zoomInGrid = usePdfDocumentStore((state) => state.zoomInGrid);
   const zoomOutGrid = usePdfDocumentStore((state) => state.zoomOutGrid);
   const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
@@ -119,6 +126,9 @@ export function BackendWorkspace() {
           </form>
 
           {lastError ? <div className="status-banner error">{lastError}</div> : null}
+          {lastOperationMessage ? (
+            <div className="status-banner success">{lastOperationMessage}</div>
+          ) : null}
 
           {documentSummary ? (
             <div className="document-summary">
@@ -137,6 +147,23 @@ export function BackendWorkspace() {
                 <span>Selected</span>
                 <strong>{selectedPageNumbers.length}</strong>
                 <small>{selectedPageNumbers.join(", ") || "none"}</small>
+              </div>
+
+              <div className="page-action-bar">
+                <span>Rotate selected</span>
+                <div className="page-action-buttons">
+                  {[90, 180, 270].map((degrees) => (
+                    <button
+                      className="secondary-button"
+                      disabled={selectedPageNumbers.length === 0 || isRotating}
+                      key={degrees}
+                      onClick={() => rotateSelectedPages(degrees as 90 | 180 | 270)}
+                      type="button"
+                    >
+                      {isRotating ? "Applying..." : `${degrees}°`}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="summary-metadata">

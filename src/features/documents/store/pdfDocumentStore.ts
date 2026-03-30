@@ -2,6 +2,10 @@ import { create } from "zustand";
 import { pdfBackend } from "../../backend/api/pdfBackend";
 import type { PdfDocumentSummary } from "../../backend/types/pdf";
 import { TauriInvokeError } from "../../../shared/lib/tauri";
+import {
+  applyRotationPreview,
+  createInPlaceRotateRequest,
+} from "../lib/rotationPreview";
 
 const DEFAULT_GRID_ITEM_WIDTH = 156;
 const GRID_ITEM_WIDTH_STEP = 20;
@@ -12,13 +16,16 @@ interface PdfDocumentStoreState {
   draftPath: string;
   activeDocument: PdfDocumentSummary | null;
   lastError: string | null;
+  lastOperationMessage: string | null;
   isInspecting: boolean;
+  isRotating: boolean;
   selectedPageNumbers: number[];
   selectionAnchorPage: number | null;
   gridItemWidth: number;
   setDraftPath(nextPath: string): void;
   inspectPdf(path?: string): Promise<void>;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
+  rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
   zoomInGrid(): void;
   zoomOutGrid(): void;
   resetGridZoom(): void;
@@ -32,7 +39,9 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   draftPath: "",
   activeDocument: null,
   lastError: null,
+  lastOperationMessage: null,
   isInspecting: false,
+  isRotating: false,
   selectedPageNumbers: [],
   selectionAnchorPage: null,
   gridItemWidth: DEFAULT_GRID_ITEM_WIDTH,
@@ -47,6 +56,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       set({
         activeDocument: null,
         lastError: "请输入一个可访问的 PDF 绝对路径。",
+        lastOperationMessage: null,
         selectedPageNumbers: [],
         selectionAnchorPage: null,
       });
@@ -57,6 +67,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       draftPath: nextPath,
       isInspecting: true,
       lastError: null,
+      lastOperationMessage: null,
     });
 
     try {
@@ -65,6 +76,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         activeDocument,
         isInspecting: false,
         lastError: null,
+        lastOperationMessage: null,
         selectedPageNumbers: activeDocument.pages[0] ? [activeDocument.pages[0].pageNumber] : [],
         selectionAnchorPage: activeDocument.pages[0]?.pageNumber ?? null,
       });
@@ -73,6 +85,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         activeDocument: null,
         isInspecting: false,
         lastError: getInspectErrorMessage(error),
+        lastOperationMessage: null,
         selectedPageNumbers: [],
         selectionAnchorPage: null,
       });
@@ -125,6 +138,71 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       selectedPageNumbers: pageOrder.slice(start, end + 1),
       selectionAnchorPage: anchor,
     });
+  },
+
+  async rotateSelectedPages(rotationDegrees) {
+    const { activeDocument, selectedPageNumbers } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (selectedPageNumbers.length === 0) {
+      set({
+        lastError: "请先选择要旋转的页面。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const previousDocument = activeDocument;
+    const selectionAnchorPage =
+      selectedPageNumbers[selectedPageNumbers.length - 1] ?? null;
+    const optimisticDocument = applyRotationPreview(
+      activeDocument,
+      selectedPageNumbers,
+      rotationDegrees,
+    );
+
+    set({
+      activeDocument: optimisticDocument,
+      isRotating: true,
+      lastError: null,
+      lastOperationMessage: null,
+      selectionAnchorPage,
+    });
+
+    try {
+      await pdfBackend.rotatePdf(
+        createInPlaceRotateRequest(
+          previousDocument.path,
+          selectedPageNumbers,
+          rotationDegrees,
+        ),
+      );
+      const refreshedDocument = await pdfBackend.inspectPdf(previousDocument.path);
+
+      set({
+        activeDocument: refreshedDocument,
+        isRotating: false,
+        lastError: null,
+        lastOperationMessage: `已旋转 ${selectedPageNumbers.length} 页（${rotationDegrees}°）。`,
+        selectedPageNumbers,
+        selectionAnchorPage,
+      });
+    } catch (error) {
+      set({
+        activeDocument: previousDocument,
+        isRotating: false,
+        lastError: error instanceof TauriInvokeError ? error.message : "旋转页面失败。",
+        lastOperationMessage: null,
+        selectedPageNumbers,
+        selectionAnchorPage,
+      });
+    }
   },
 
   zoomInGrid() {

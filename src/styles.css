@@ -245,6 +245,12 @@ button {
   background: rgba(255, 245, 242, 0.88);
 }
 
+.status-banner.success {
+  color: #17623c;
+  border-color: rgba(23, 98, 60, 0.18);
+  background: rgba(241, 252, 245, 0.92);
+}
+
 .empty-state p,
 .empty-state small {
   margin: 0;
@@ -313,6 +319,45 @@ button {
 
 .summary-selection strong {
   font-size: 1.1rem;
+}
+
+.page-action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: rgba(13, 92, 99, 0.06);
+  border: 1px solid rgba(13, 92, 99, 0.1);
+}
+
+.page-action-bar span {
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.82rem;
+}
+
+.page-action-buttons {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.secondary-button {
+  border: 1px solid rgba(13, 92, 99, 0.16);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--accent-strong);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 700;
+}
+
+.secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .summary-topline h3 {
