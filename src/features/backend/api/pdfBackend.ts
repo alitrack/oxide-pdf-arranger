@@ -1,5 +1,6 @@
 import { invokeCommand } from "../../../shared/lib/tauri";
 import type {
+  CopyDocumentRequest,
   DeletePagesRequest,
   DuplicatePagesRequest,
   InsertBlankPageRequest,
@@ -37,5 +38,9 @@ export const pdfBackend = {
 
   insertBlankPage(request: InsertBlankPageRequest) {
     return invokeCommand<PdfOperationResult>("insert_blank_page", { request });
+  },
+
+  copyDocument(request: CopyDocumentRequest) {
+    return invokeCommand<PdfOperationResult>("copy_document", { request });
   },
 };

@@ -1,9 +1,12 @@
 import { useEffect } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
 import { PageGrid } from "../../documents/components/PageGrid";
 import { useWorkspaceTheme } from "../../workspace/hooks/useWorkspaceTheme";
-import { getSingleSelectedPath } from "../../files/lib/dialogSelection";
+import {
+  getSingleSavePath,
+  getSingleSelectedPath,
+} from "../../files/lib/dialogSelection";
 
 const operationCards = [
   {
@@ -62,6 +65,8 @@ export function BackendWorkspace() {
   );
   const documentSummary = usePdfDocumentStore((state) => state.activeDocument);
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
+  const isSaving = usePdfDocumentStore((state) => state.isSaving);
+  const isExporting = usePdfDocumentStore((state) => state.isExporting);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
   const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
   const isDuplicating = usePdfDocumentStore((state) => state.isDuplicating);
@@ -74,6 +79,10 @@ export function BackendWorkspace() {
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
   const rotateSelectedPages = usePdfDocumentStore(
     (state) => state.rotateSelectedPages,
+  );
+  const saveDocumentAs = usePdfDocumentStore((state) => state.saveDocumentAs);
+  const exportDocumentCopy = usePdfDocumentStore(
+    (state) => state.exportDocumentCopy,
   );
   const deleteSelectedPages = usePdfDocumentStore(
     (state) => state.deleteSelectedPages,
@@ -89,6 +98,7 @@ export function BackendWorkspace() {
   const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
   const isApplyingPageAction =
     isRotating || isDeleting || isDuplicating || isInsertingBlank;
+  const isFileActionBusy = isInspecting || isSaving || isExporting;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -157,6 +167,56 @@ export function BackendWorkspace() {
 
     setDraftPath(selectedPath);
     await inspectPdf(selectedPath);
+  }
+
+  async function handleSaveAs() {
+    if (!documentSummary) {
+      return;
+    }
+
+    const outputPath = getSingleSavePath(
+      await save({
+        defaultPath: documentSummary.path,
+        filters: [
+          {
+            name: "PDF",
+            extensions: ["pdf"],
+          },
+        ],
+        title: "Save PDF as",
+      }),
+    );
+
+    if (!outputPath) {
+      return;
+    }
+
+    await saveDocumentAs(outputPath);
+  }
+
+  async function handleExportCopy() {
+    if (!documentSummary) {
+      return;
+    }
+
+    const outputPath = getSingleSavePath(
+      await save({
+        defaultPath: documentSummary.path.replace(/\.pdf$/i, "-copy.pdf"),
+        filters: [
+          {
+            name: "PDF",
+            extensions: ["pdf"],
+          },
+        ],
+        title: "Export PDF copy",
+      }),
+    );
+
+    if (!outputPath) {
+      return;
+    }
+
+    await exportDocumentCopy(outputPath);
   }
 
   return (
@@ -234,12 +294,12 @@ export function BackendWorkspace() {
               />
             </label>
 
-            <button className="primary-button" disabled={isInspecting} type="submit">
+            <button className="primary-button" disabled={isFileActionBusy} type="submit">
               {isInspecting ? "Inspecting..." : "Inspect PDF"}
             </button>
             <button
               className="secondary-button"
-              disabled={isInspecting}
+              disabled={isFileActionBusy}
               onClick={() => void handleBrowseAndInspect()}
               type="button"
             >
@@ -259,13 +319,13 @@ export function BackendWorkspace() {
                 {recentFiles.map((filePath) => (
                   <button
                     className="recent-file-button"
-                    disabled={isInspecting}
                     key={filePath}
                     onClick={() => {
                       setDraftPath(filePath);
                       void inspectPdf(filePath);
                     }}
                     type="button"
+                    disabled={isFileActionBusy}
                   >
                     {filePath}
                   </button>
@@ -302,6 +362,28 @@ export function BackendWorkspace() {
                   <div className="workspace-toolbar-chip">
                     <span>Selected</span>
                     <strong>{selectedPageNumbers.length}</strong>
+                  </div>
+                </div>
+
+                <div className="page-action-bar">
+                  <span>File actions</span>
+                  <div className="page-action-buttons">
+                    <button
+                      className="secondary-button"
+                      disabled={isFileActionBusy}
+                      onClick={() => void handleExportCopy()}
+                      type="button"
+                    >
+                      {isExporting ? "Exporting..." : "Export copy"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={isFileActionBusy}
+                      onClick={() => void handleSaveAs()}
+                      type="button"
+                    >
+                      {isSaving ? "Saving..." : "Save as"}
+                    </button>
                   </div>
                 </div>
 

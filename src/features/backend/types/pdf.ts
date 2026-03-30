@@ -48,6 +48,11 @@ export interface InsertBlankPageRequest {
   outputPath: string;
 }
 
+export interface CopyDocumentRequest {
+  inputPath: string;
+  outputPath: string;
+}
+
 export interface PdfOperationResult {
   outputPath: string;
   pageCount: number;

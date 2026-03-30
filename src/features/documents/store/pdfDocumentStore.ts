@@ -46,6 +46,8 @@ interface PdfDocumentStoreState {
   lastError: string | null;
   lastOperationMessage: string | null;
   isInspecting: boolean;
+  isSaving: boolean;
+  isExporting: boolean;
   isRotating: boolean;
   isDeleting: boolean;
   isDuplicating: boolean;
@@ -58,6 +60,8 @@ interface PdfDocumentStoreState {
   inspectPdf(path?: string): Promise<void>;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
+  saveDocumentAs(outputPath: string): Promise<void>;
+  exportDocumentCopy(outputPath: string): Promise<void>;
   deleteSelectedPages(): Promise<void>;
   duplicateSelectedPages(): Promise<void>;
   insertBlankPageAfterSelection(): Promise<void>;
@@ -76,6 +80,8 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   lastError: null,
   lastOperationMessage: null,
   isInspecting: false,
+  isSaving: false,
+  isExporting: false,
   isRotating: false,
   isDeleting: false,
   isDuplicating: false,
@@ -248,6 +254,124 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         lastOperationMessage: null,
         selectedPageNumbers,
         selectionAnchorPage,
+      });
+    }
+  },
+
+  async saveDocumentAs(outputPath) {
+    const { activeDocument, selectedPageNumbers, recentFiles } = get();
+    const nextOutputPath = outputPath.trim();
+
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (!nextOutputPath) {
+      set({
+        lastError: "请选择有效的另存为目标路径。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isSaving: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.copyDocument({
+        inputPath: activeDocument.path,
+        outputPath: nextOutputPath,
+      });
+      const refreshedDocument = await pdfBackend.inspectPdf(nextOutputPath);
+      const nextRecentFiles = updateRecentFiles(
+        recentFiles,
+        nextOutputPath,
+        RECENT_FILES_LIMIT,
+      );
+      persistRecentFiles(nextRecentFiles);
+
+      set({
+        draftPath: nextOutputPath,
+        activeDocument: refreshedDocument,
+        isSaving: false,
+        lastError: null,
+        lastOperationMessage: `已另存为 ${nextOutputPath}。`,
+        recentFiles: nextRecentFiles,
+        selectedPageNumbers: selectedPageNumbers.filter(
+          (pageNumber) => pageNumber <= refreshedDocument.pageCount,
+        ),
+        selectionAnchorPage:
+          selectedPageNumbers[selectedPageNumbers.length - 1] ??
+          refreshedDocument.pages[0]?.pageNumber ??
+          null,
+      });
+    } catch (error) {
+      set({
+        isSaving: false,
+        lastError:
+          error instanceof TauriInvokeError ? error.message : "另存为 PDF 失败。",
+        lastOperationMessage: null,
+      });
+    }
+  },
+
+  async exportDocumentCopy(outputPath) {
+    const { activeDocument, recentFiles } = get();
+    const nextOutputPath = outputPath.trim();
+
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (!nextOutputPath) {
+      set({
+        lastError: "请选择有效的导出目标路径。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isExporting: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.copyDocument({
+        inputPath: activeDocument.path,
+        outputPath: nextOutputPath,
+      });
+      const nextRecentFiles = updateRecentFiles(
+        recentFiles,
+        nextOutputPath,
+        RECENT_FILES_LIMIT,
+      );
+      persistRecentFiles(nextRecentFiles);
+
+      set({
+        isExporting: false,
+        lastError: null,
+        lastOperationMessage: `已导出副本到 ${nextOutputPath}。`,
+        recentFiles: nextRecentFiles,
+      });
+    } catch (error) {
+      set({
+        isExporting: false,
+        lastError:
+          error instanceof TauriInvokeError ? error.message : "导出 PDF 副本失败。",
+        lastOperationMessage: null,
       });
     }
   },

@@ -128,6 +128,13 @@ pub struct InsertBlankPageRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct CopyDocumentRequest {
+    pub input_path: String,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfOperationResult {
     pub output_path: String,
     pub page_count: u32,
@@ -402,6 +409,28 @@ pub fn insert_blank_page(request: &InsertBlankPageRequest) -> AppResult<PdfOpera
     })
 }
 
+pub fn copy_document(request: &CopyDocumentRequest) -> AppResult<PdfOperationResult> {
+    validate_path(&request.input_path, "input_path")?;
+    validate_path(&request.output_path, "output_path")?;
+    ensure_distinct_paths(&request.input_path, &request.output_path)?;
+    ensure_output_parent(&request.output_path)?;
+
+    let input_doc = PdfDocument::load(&request.input_path)?;
+    let page_count = input_doc.page_count() as u32;
+
+    info!(
+        input_path = request.input_path,
+        output_path = request.output_path,
+        "Copying PDF document"
+    );
+    std::fs::copy(&request.input_path, &request.output_path)?;
+
+    Ok(PdfOperationResult {
+        output_path: request.output_path.clone(),
+        page_count,
+    })
+}
+
 fn validate_path(value: &str, field_name: &str) -> AppResult<()> {
     if value.trim().is_empty() {
         return Err(AppError::InvalidRequest(format!(
@@ -450,6 +479,19 @@ fn ensure_output_parent(output_path: &str) -> AppResult<()> {
     {
         std::fs::create_dir_all(parent)?;
     }
+    Ok(())
+}
+
+fn ensure_distinct_paths(input_path: &str, output_path: &str) -> AppResult<()> {
+    let input = Path::new(input_path);
+    let output = Path::new(output_path);
+
+    if input == output {
+        return Err(AppError::InvalidRequest(
+            "output_path must be different from input_path".to_string(),
+        ));
+    }
+
     Ok(())
 }
 
@@ -1023,5 +1065,28 @@ mod tests {
         let summary = inspect_pdf(output.to_str().expect("utf-8 path")).expect("inspect pdf");
         assert_eq!(summary.page_count, 4);
         assert_eq!(summary.pages[2].media_box, [0.0, 0.0, 400.0, 600.0]);
+    }
+
+    #[test]
+    fn copy_document_creates_a_distinct_pdf_copy() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("copy-input.pdf");
+        let output = dir.path().join("nested/copy-output.pdf");
+        create_text_fixture_with_pages(
+            &input,
+            &[("A", 612, 792, 0), ("B", 612, 792, 0), ("C", 612, 792, 0)],
+        );
+
+        let result = copy_document(&CopyDocumentRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            output_path: output.to_string_lossy().into_owned(),
+        })
+        .expect("copy document");
+
+        assert_eq!(result.output_path, output.to_string_lossy());
+        assert_eq!(result.page_count, 3);
+        assert!(output.exists(), "copy should create an output pdf");
+        assert_eq!(extract_page_markers(&output), vec!["A", "B", "C"]);
+        assert_ne!(input, output, "copy target should stay distinct from input path");
     }
 }
