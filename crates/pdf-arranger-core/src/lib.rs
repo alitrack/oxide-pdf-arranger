@@ -104,6 +104,14 @@ pub struct RotatePdfRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct DeletePagesRequest {
+    pub input_path: String,
+    pub page_numbers: Vec<u32>,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfOperationResult {
     pub output_path: String,
     pub page_count: u32,
@@ -232,6 +240,46 @@ pub fn rotate_pdf(request: &RotatePdfRequest) -> AppResult<PdfOperationResult> {
     Ok(PdfOperationResult {
         output_path: request.output_path.clone(),
         page_count: page_count as u32,
+    })
+}
+
+pub fn delete_pages(request: &DeletePagesRequest) -> AppResult<PdfOperationResult> {
+    validate_path(&request.input_path, "input_path")?;
+    validate_path(&request.output_path, "output_path")?;
+    validate_page_numbers_not_empty(&request.page_numbers)?;
+    ensure_output_parent(&request.output_path)?;
+
+    let input_doc = PdfDocument::load(&request.input_path)?;
+    let page_count = input_doc.page_count();
+    validate_page_numbers_exist(page_count, &request.page_numbers)?;
+
+    let deleted_pages: std::collections::HashSet<_> = request.page_numbers.iter().copied().collect();
+    let remaining_pages: Vec<u32> = (1..=page_count as u32)
+        .filter(|page_number| !deleted_pages.contains(page_number))
+        .collect();
+
+    if remaining_pages.is_empty() {
+        return Err(AppError::InvalidRequest(
+            "cannot delete every page from the document".to_string(),
+        ));
+    }
+
+    info!(
+        input_path = request.input_path,
+        output_path = request.output_path,
+        deleted_pages = ?request.page_numbers,
+        remaining_pages = ?remaining_pages,
+        "Deleting PDF pages"
+    );
+    extract_pages(
+        Path::new(&request.input_path),
+        &remaining_pages,
+        Path::new(&request.output_path),
+    )?;
+
+    Ok(PdfOperationResult {
+        output_path: request.output_path.clone(),
+        page_count: remaining_pages.len() as u32,
     })
 }
 
@@ -674,6 +722,56 @@ mod tests {
             output_path: output.to_string_lossy().into_owned(),
         })
         .expect_err("non-quarter-turns should fail");
+
+        assert!(
+            matches!(error, AppError::InvalidRequest(_)),
+            "expected validation error, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn delete_pages_removes_selected_pages_and_rewrites_document() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("delete-input.pdf");
+        let output = dir.path().join("delete-output.pdf");
+        create_text_fixture_with_pages(
+            &input,
+            &[
+                ("p-1", 612, 792, 0),
+                ("p-2", 612, 792, 0),
+                ("p-3", 612, 792, 0),
+            ],
+        );
+
+        let result = delete_pages(&DeletePagesRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            page_numbers: vec![2],
+            output_path: output.to_string_lossy().into_owned(),
+        })
+        .expect("delete pages");
+
+        assert_eq!(result.page_count, 2);
+
+        let summary = inspect_pdf(output.to_str().expect("utf-8 path")).expect("inspect pdf");
+        assert_eq!(summary.page_count, 2);
+    }
+
+    #[test]
+    fn delete_pages_rejects_removing_every_page() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("delete-all-input.pdf");
+        let output = dir.path().join("delete-all-output.pdf");
+        create_text_fixture_with_pages(
+            &input,
+            &[("p-1", 612, 792, 0), ("p-2", 612, 792, 0)],
+        );
+
+        let error = delete_pages(&DeletePagesRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            page_numbers: vec![1, 2],
+            output_path: output.to_string_lossy().into_owned(),
+        })
+        .expect_err("deleting all pages should fail");
 
         assert!(
             matches!(error, AppError::InvalidRequest(_)),

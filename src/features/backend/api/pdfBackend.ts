@@ -1,5 +1,6 @@
 import { invokeCommand } from "../../../shared/lib/tauri";
 import type {
+  DeletePagesRequest,
   MergePdfRequest,
   PdfDocumentSummary,
   PdfOperationResult,
@@ -22,5 +23,9 @@ export const pdfBackend = {
 
   rotatePdf(request: RotatePdfRequest) {
     return invokeCommand<PdfOperationResult>("rotate_pdf", { request });
+  },
+
+  deletePages(request: DeletePagesRequest) {
+    return invokeCommand<PdfOperationResult>("delete_pages", { request });
   },
 };

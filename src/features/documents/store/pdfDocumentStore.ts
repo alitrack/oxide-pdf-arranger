@@ -19,6 +19,7 @@ interface PdfDocumentStoreState {
   lastOperationMessage: string | null;
   isInspecting: boolean;
   isRotating: boolean;
+  isDeleting: boolean;
   selectedPageNumbers: number[];
   selectionAnchorPage: number | null;
   gridItemWidth: number;
@@ -26,6 +27,7 @@ interface PdfDocumentStoreState {
   inspectPdf(path?: string): Promise<void>;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
+  deleteSelectedPages(): Promise<void>;
   zoomInGrid(): void;
   zoomOutGrid(): void;
   resetGridZoom(): void;
@@ -42,6 +44,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   lastOperationMessage: null,
   isInspecting: false,
   isRotating: false,
+  isDeleting: false,
   selectedPageNumbers: [],
   selectionAnchorPage: null,
   gridItemWidth: DEFAULT_GRID_ITEM_WIDTH,
@@ -201,6 +204,66 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         lastOperationMessage: null,
         selectedPageNumbers,
         selectionAnchorPage,
+      });
+    }
+  },
+
+  async deleteSelectedPages() {
+    const { activeDocument, selectedPageNumbers } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (selectedPageNumbers.length === 0) {
+      set({
+        lastError: "请先选择要删除的页面。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (selectedPageNumbers.length >= activeDocument.pages.length) {
+      set({
+        lastError: "不能删除文档中的全部页面。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isDeleting: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.deletePages({
+        inputPath: activeDocument.path,
+        pageNumbers: selectedPageNumbers,
+        outputPath: activeDocument.path,
+      });
+      const refreshedDocument = await pdfBackend.inspectPdf(activeDocument.path);
+      const nextSelectedPages = refreshedDocument.pages[0]
+        ? [refreshedDocument.pages[0].pageNumber]
+        : [];
+
+      set({
+        activeDocument: refreshedDocument,
+        isDeleting: false,
+        lastError: null,
+        lastOperationMessage: `已删除 ${selectedPageNumbers.length} 页。`,
+        selectedPageNumbers: nextSelectedPages,
+        selectionAnchorPage: nextSelectedPages[0] ?? null,
+      });
+    } catch (error) {
+      set({
+        isDeleting: false,
+        lastError: error instanceof TauriInvokeError ? error.message : "删除页面失败。",
+        lastOperationMessage: null,
       });
     }
   },

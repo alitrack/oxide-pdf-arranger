@@ -45,6 +45,7 @@ export function BackendWorkspace() {
   const documentSummary = usePdfDocumentStore((state) => state.activeDocument);
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
+  const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
   const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
   const gridItemWidth = usePdfDocumentStore((state) => state.gridItemWidth);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
@@ -53,9 +54,13 @@ export function BackendWorkspace() {
   const rotateSelectedPages = usePdfDocumentStore(
     (state) => state.rotateSelectedPages,
   );
+  const deleteSelectedPages = usePdfDocumentStore(
+    (state) => state.deleteSelectedPages,
+  );
   const zoomInGrid = usePdfDocumentStore((state) => state.zoomInGrid);
   const zoomOutGrid = usePdfDocumentStore((state) => state.zoomOutGrid);
   const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
+  const isApplyingPageAction = isRotating || isDeleting;
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -155,7 +160,7 @@ export function BackendWorkspace() {
                   {[90, 180, 270].map((degrees) => (
                     <button
                       className="secondary-button"
-                      disabled={selectedPageNumbers.length === 0 || isRotating}
+                      disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
                       key={degrees}
                       onClick={() => rotateSelectedPages(degrees as 90 | 180 | 270)}
                       type="button"
@@ -163,6 +168,14 @@ export function BackendWorkspace() {
                       {isRotating ? "Applying..." : `${degrees}°`}
                     </button>
                   ))}
+                  <button
+                    className="secondary-button danger"
+                    disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                    onClick={() => deleteSelectedPages()}
+                    type="button"
+                  >
+                    {isDeleting ? "Deleting..." : "Delete"}
+                  </button>
                 </div>
               </div>
 

@@ -360,6 +360,11 @@ button {
   cursor: not-allowed;
 }
 
+.secondary-button.danger {
+  border-color: rgba(163, 61, 45, 0.18);
+  color: var(--error);
+}
+
 .summary-topline h3 {
   font-size: 1.4rem;
   line-height: 1.2;

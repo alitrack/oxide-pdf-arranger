@@ -30,6 +30,12 @@ export interface RotatePdfRequest {
   outputPath: string;
 }
 
+export interface DeletePagesRequest {
+  inputPath: string;
+  pageNumbers: number[];
+  outputPath: string;
+}
+
 export interface PdfOperationResult {
   outputPath: string;
   pageCount: number;
