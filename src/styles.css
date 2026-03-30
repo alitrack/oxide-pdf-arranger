@@ -340,6 +340,41 @@ button {
   font-size: 0.82rem;
 }
 
+.workspace-toolbar {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(13, 92, 99, 0.14);
+}
+
+.workspace-toolbar-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workspace-toolbar-chip {
+  display: inline-flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(13, 92, 99, 0.07);
+}
+
+.workspace-toolbar-chip span {
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+}
+
+.workspace-toolbar-chip strong {
+  color: var(--accent-strong);
+}
+
 .page-action-buttons {
   display: inline-flex;
   gap: 8px;
@@ -543,6 +578,26 @@ button {
   cursor: not-allowed;
 }
 
+.workspace-statusbar {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(16, 33, 39, 0.9);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.9rem;
+}
+
+.statusbar-path {
+  margin-left: auto;
+  max-width: min(100%, 420px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.66);
+}
+
 .page-preview-wrap {
   display: grid;
   place-items: center;
@@ -704,6 +759,11 @@ button {
 
   .page-grid-caption {
     text-align: left;
+  }
+
+  .statusbar-path {
+    margin-left: 0;
+    max-width: 100%;
   }
 }
 

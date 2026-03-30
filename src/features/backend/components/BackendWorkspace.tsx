@@ -163,44 +163,57 @@ export function BackendWorkspace() {
                 <small>{selectedPageNumbers.join(", ") || "none"}</small>
               </div>
 
-              <div className="page-action-bar">
-                <span>Rotate selected</span>
-                <div className="page-action-buttons">
-                  {[90, 180, 270].map((degrees) => (
+              <div className="workspace-toolbar">
+                <div className="workspace-toolbar-meta">
+                  <div className="workspace-toolbar-chip">
+                    <span>Pages</span>
+                    <strong>{documentSummary.pageCount}</strong>
+                  </div>
+                  <div className="workspace-toolbar-chip">
+                    <span>Selected</span>
+                    <strong>{selectedPageNumbers.length}</strong>
+                  </div>
+                </div>
+
+                <div className="page-action-bar">
+                  <span>Page actions</span>
+                  <div className="page-action-buttons">
+                    {[90, 180, 270].map((degrees) => (
+                      <button
+                        className="secondary-button"
+                        disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                        key={degrees}
+                        onClick={() => rotateSelectedPages(degrees as 90 | 180 | 270)}
+                        type="button"
+                      >
+                        {isRotating ? "Applying..." : `${degrees}°`}
+                      </button>
+                    ))}
                     <button
                       className="secondary-button"
                       disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
-                      key={degrees}
-                      onClick={() => rotateSelectedPages(degrees as 90 | 180 | 270)}
+                      onClick={() => insertBlankPageAfterSelection()}
                       type="button"
                     >
-                      {isRotating ? "Applying..." : `${degrees}°`}
+                      {isInsertingBlank ? "Inserting..." : "Insert blank"}
                     </button>
-                  ))}
-                  <button
-                    className="secondary-button"
-                    disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
-                    onClick={() => insertBlankPageAfterSelection()}
-                    type="button"
-                  >
-                    {isInsertingBlank ? "Inserting..." : "Insert blank"}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
-                    onClick={() => duplicateSelectedPages()}
-                    type="button"
-                  >
-                    {isDuplicating ? "Duplicating..." : "Duplicate"}
-                  </button>
-                  <button
-                    className="secondary-button danger"
-                    disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
-                    onClick={() => deleteSelectedPages()}
-                    type="button"
-                  >
-                    {isDeleting ? "Deleting..." : "Delete"}
-                  </button>
+                    <button
+                      className="secondary-button"
+                      disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                      onClick={() => duplicateSelectedPages()}
+                      type="button"
+                    >
+                      {isDuplicating ? "Duplicating..." : "Duplicate"}
+                    </button>
+                    <button
+                      className="secondary-button danger"
+                      disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                      onClick={() => deleteSelectedPages()}
+                      type="button"
+                    >
+                      {isDeleting ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -230,6 +243,13 @@ export function BackendWorkspace() {
                 pages={documentSummary.pages}
                 selectedPageNumbers={selectedPageNumbers}
               />
+
+              <div className="workspace-statusbar">
+                <span>Page count: {documentSummary.pageCount}</span>
+                <span>Selected: {selectedPageNumbers.length}</span>
+                <span>Grid width: {gridItemWidth}px</span>
+                <span className="statusbar-path">{documentSummary.path}</span>
+              </div>
             </div>
           ) : (
             <div className="empty-state">
