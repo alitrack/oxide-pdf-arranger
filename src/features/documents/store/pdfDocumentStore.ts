@@ -3,6 +3,11 @@ import { pdfBackend } from "../../backend/api/pdfBackend";
 import type { PdfDocumentSummary } from "../../backend/types/pdf";
 import { TauriInvokeError } from "../../../shared/lib/tauri";
 
+const DEFAULT_GRID_ITEM_WIDTH = 156;
+const GRID_ITEM_WIDTH_STEP = 20;
+const MIN_GRID_ITEM_WIDTH = 140;
+const MAX_GRID_ITEM_WIDTH = 260;
+
 interface PdfDocumentStoreState {
   draftPath: string;
   activeDocument: PdfDocumentSummary | null;
@@ -10,9 +15,13 @@ interface PdfDocumentStoreState {
   isInspecting: boolean;
   selectedPageNumbers: number[];
   selectionAnchorPage: number | null;
+  gridItemWidth: number;
   setDraftPath(nextPath: string): void;
   inspectPdf(path?: string): Promise<void>;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
+  zoomInGrid(): void;
+  zoomOutGrid(): void;
+  resetGridZoom(): void;
 }
 
 function getInspectErrorMessage(error: unknown) {
@@ -26,6 +35,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isInspecting: false,
   selectedPageNumbers: [],
   selectionAnchorPage: null,
+  gridItemWidth: DEFAULT_GRID_ITEM_WIDTH,
 
   setDraftPath(nextPath) {
     set({ draftPath: nextPath });
@@ -115,5 +125,27 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       selectedPageNumbers: pageOrder.slice(start, end + 1),
       selectionAnchorPage: anchor,
     });
+  },
+
+  zoomInGrid() {
+    set((state) => ({
+      gridItemWidth: Math.min(
+        MAX_GRID_ITEM_WIDTH,
+        state.gridItemWidth + GRID_ITEM_WIDTH_STEP,
+      ),
+    }));
+  },
+
+  zoomOutGrid() {
+    set((state) => ({
+      gridItemWidth: Math.max(
+        MIN_GRID_ITEM_WIDTH,
+        state.gridItemWidth - GRID_ITEM_WIDTH_STEP,
+      ),
+    }));
+  },
+
+  resetGridZoom() {
+    set({ gridItemWidth: DEFAULT_GRID_ITEM_WIDTH });
   },
 }));

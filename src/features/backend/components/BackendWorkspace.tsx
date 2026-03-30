@@ -42,9 +42,13 @@ export function BackendWorkspace() {
   const documentSummary = usePdfDocumentStore((state) => state.activeDocument);
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
   const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
+  const gridItemWidth = usePdfDocumentStore((state) => state.gridItemWidth);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
   const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
+  const zoomInGrid = usePdfDocumentStore((state) => state.zoomInGrid);
+  const zoomOutGrid = usePdfDocumentStore((state) => state.zoomOutGrid);
+  const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -147,8 +151,12 @@ export function BackendWorkspace() {
               </div>
 
               <PageGrid
+                gridItemWidth={gridItemWidth}
                 isLoading={isInspecting}
                 onPageClick={selectPage}
+                onResetZoom={resetGridZoom}
+                onZoomIn={zoomInGrid}
+                onZoomOut={zoomOutGrid}
                 pages={documentSummary.pages}
                 selectedPageNumbers={selectedPageNumbers}
               />
@@ -164,8 +172,12 @@ export function BackendWorkspace() {
 
           {!documentSummary && isInspecting ? (
             <PageGrid
+              gridItemWidth={gridItemWidth}
               isLoading={isInspecting}
               onPageClick={selectPage}
+              onResetZoom={resetGridZoom}
+              onZoomIn={zoomInGrid}
+              onZoomOut={zoomOutGrid}
               pages={[]}
               selectedPageNumbers={selectedPageNumbers}
             />

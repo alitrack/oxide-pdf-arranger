@@ -1,9 +1,13 @@
-import type { MouseEvent } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import type { PdfPageInfo } from "../../backend/types/pdf";
 
 interface PageGridProps {
   pages: PdfPageInfo[];
   isLoading: boolean;
+  gridItemWidth: number;
+  onZoomIn(): void;
+  onZoomOut(): void;
+  onResetZoom(): void;
   selectedPageNumbers: number[];
   onPageClick(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
 }
@@ -33,21 +37,42 @@ function getSelectionMode(event: MouseEvent<HTMLButtonElement>) {
 export function PageGrid({
   pages,
   isLoading,
+  gridItemWidth,
+  onZoomIn,
+  onZoomOut,
+  onResetZoom,
   selectedPageNumbers,
   onPageClick,
 }: PageGridProps) {
   const skeletons = Array.from({ length: 6 }, (_, index) => `skeleton-${index}`);
+  const gridStyle = {
+    "--page-grid-min": `${gridItemWidth}px`,
+    "--page-preview-min-height": `${Math.round(gridItemWidth * 1.28)}px`,
+  } as CSSProperties;
 
   return (
-    <div className="page-grid-shell">
+    <div className="page-grid-shell" style={gridStyle}>
       <div className="page-grid-header">
         <div>
           <p className="panel-kicker">Page Grid</p>
           <h3>Responsive document surface</h3>
         </div>
-        <p className="page-grid-caption">
-          先用页面尺寸和旋转元数据建立网格布局，后续可直接替换成真实缩略图渲染结果。
-        </p>
+        <div className="page-grid-tools">
+          <p className="page-grid-caption">
+            先用页面尺寸和旋转元数据建立网格布局，后续可直接替换成真实缩略图渲染结果。
+          </p>
+          <div className="zoom-controls" role="group" aria-label="Page grid zoom controls">
+            <button onClick={onZoomOut} type="button">
+              Compact
+            </button>
+            <button onClick={onResetZoom} type="button">
+              Reset
+            </button>
+            <button onClick={onZoomIn} type="button">
+              Detailed
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="page-grid">
