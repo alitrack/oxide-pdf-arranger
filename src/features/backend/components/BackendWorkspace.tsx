@@ -541,12 +541,18 @@ export function BackendWorkspace() {
                     <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> redo
                   </span>
                   <span>
+                    <kbd>Space</kbd> pick up focused page for keyboard reorder
+                  </span>
+                  <span>
+                    <kbd>Arrow keys</kbd> move the lifted page, <kbd>Escape</kbd> cancels
+                  </span>
+                  <span>
                     <kbd>B</kbd> insert blank after selection
                   </span>
                   <span>
                     <kbd>Delete</kbd> delete selected pages
                   </span>
-                  <span>Right click any page for the same action menu</span>
+                  <span>Touch: long press a page card to start drag reorder</span>
                 </div>
               </div>
             </div>

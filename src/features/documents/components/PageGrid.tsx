@@ -11,12 +11,14 @@ import {
 import {
   closestCenter,
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -54,6 +56,8 @@ interface ContextMenuState {
 
 interface SortablePageCardProps {
   page: PdfPageInfo;
+  helpTextId: string;
+  isDropTarget: boolean;
   isSelected: boolean;
   onOpenContextMenu(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
   onSelectPage(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
@@ -81,32 +85,9 @@ function getSelectionMode(event: MouseEvent<HTMLButtonElement>) {
   return "replace" as const;
 }
 
-function SortablePageCard({
-  page,
-  isSelected,
-  onOpenContextMenu,
-  onSelectPage,
-}: SortablePageCardProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: page.pageNumber });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
+function PageCardContent({ page }: { page: PdfPageInfo }) {
   return (
-    <button
-      {...attributes}
-      {...listeners}
-      aria-pressed={isSelected}
-      className={`page-card${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}`}
-      onClick={(event) => onSelectPage(event, page.pageNumber)}
-      onContextMenu={(event) => onOpenContextMenu(event, page.pageNumber)}
-      ref={setNodeRef}
-      style={style}
-      type="button"
-    >
+    <>
       <div className="page-preview-wrap">
         <div className="page-preview" style={{ aspectRatio: getAspectRatio(page) }}>
           <img
@@ -127,6 +108,41 @@ function SortablePageCard({
         </span>
         <span>Rotate {page.rotation}°</span>
       </div>
+    </>
+  );
+}
+
+function SortablePageCard({
+  page,
+  helpTextId,
+  isDropTarget,
+  isSelected,
+  onOpenContextMenu,
+  onSelectPage,
+}: SortablePageCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: page.pageNumber });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <button
+      {...attributes}
+      {...listeners}
+      aria-describedby={helpTextId}
+      aria-label={`${getPageLabel(page)}，${isSelected ? "已选中" : "未选中"}。按空格开始重排。`}
+      aria-pressed={isSelected}
+      className={`page-card${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}${isDropTarget ? " drop-target" : ""}`}
+      onClick={(event) => onSelectPage(event, page.pageNumber)}
+      onContextMenu={(event) => onOpenContextMenu(event, page.pageNumber)}
+      ref={setNodeRef}
+      style={style}
+      type="button"
+    >
+      <PageCardContent page={page} />
     </button>
   );
 }
@@ -148,12 +164,15 @@ export function PageGrid({
   isApplyingPageAction,
 }: PageGridProps) {
   const skeletons = Array.from({ length: 6 }, (_, index) => `skeleton-${index}`);
+  const reorderHelpId = "page-grid-reorder-help";
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(gridItemWidth * 4);
   const [viewportHeight, setViewportHeight] = useState(720);
+  const [activeDragPageNumber, setActiveDragPageNumber] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [dropTargetPageNumber, setDropTargetPageNumber] = useState<number | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
@@ -171,6 +190,10 @@ export function PageGrid({
     [gridItemWidth, pages.length, scrollTop, viewportHeight, viewportWidth],
   );
   const visiblePages = pages.slice(virtualWindow.startIndex, virtualWindow.endIndex);
+  const activeDragPage =
+    activeDragPageNumber === null
+      ? null
+      : pages.find((page) => page.pageNumber === activeDragPageNumber) ?? null;
   const gridStyle = {
     "--page-grid-min": `${gridItemWidth}px`,
     "--page-preview-min-height": `${Math.round(gridItemWidth * 1.28)}px`,
@@ -263,13 +286,24 @@ export function PageGrid({
     }
   }
 
+  function resetDragState() {
+    setActiveDragPageNumber(null);
+    setDropTargetPageNumber(null);
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveDragPageNumber(Number(event.active.id));
+    setDropTargetPageNumber(Number(event.active.id));
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const overId = event.over?.id;
+    const activeId = Number(event.active.id);
+    resetDragState();
     if (!overId) {
       return;
     }
 
-    const activeId = Number(event.active.id);
     const nextId = Number(overId);
     if (activeId === nextId) {
       return;
@@ -298,6 +332,9 @@ export function PageGrid({
           <p className="page-grid-caption">
             先用页面尺寸和旋转元数据建立网格布局，后续可直接替换成真实缩略图渲染结果。
           </p>
+          <p className="page-grid-accessibility" id={reorderHelpId}>
+            拖拽重排：鼠标拖动页面卡片；触屏长按后拖动；键盘聚焦页面后按空格抬起，方向键移动，再按空格放下，按 Escape 取消。
+          </p>
           <div className="zoom-controls" role="group" aria-label="Page grid zoom controls">
             <button onClick={onZoomOut} type="button">
               Compact
@@ -323,6 +360,11 @@ export function PageGrid({
             <DndContext
               collisionDetection={closestCenter}
               onDragEnd={handleDragEnd}
+              onDragCancel={resetDragState}
+              onDragOver={(event) =>
+                setDropTargetPageNumber(event.over ? Number(event.over.id) : null)
+              }
+              onDragStart={handleDragStart}
               sensors={sensors}
             >
               <SortableContext
@@ -332,6 +374,11 @@ export function PageGrid({
                 <div className="page-grid">
                   {visiblePages.map((page) => (
                     <SortablePageCard
+                      helpTextId={reorderHelpId}
+                      isDropTarget={
+                        dropTargetPageNumber === page.pageNumber &&
+                        activeDragPageNumber !== page.pageNumber
+                      }
                       isSelected={selectedPageNumbers.includes(page.pageNumber)}
                       key={page.pageNumber}
                       onOpenContextMenu={openContextMenu}
@@ -343,6 +390,13 @@ export function PageGrid({
                   ))}
                 </div>
               </SortableContext>
+              <DragOverlay>
+                {activeDragPage ? (
+                  <div className="page-card drag-overlay">
+                    <PageCardContent page={activeDragPage} />
+                  </div>
+                ) : null}
+              </DragOverlay>
             </DndContext>
             <div style={{ height: `${virtualWindow.paddingBottom}px` }} />
           </div>
