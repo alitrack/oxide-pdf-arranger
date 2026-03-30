@@ -59,6 +59,13 @@ export interface CopyDocumentRequest {
   outputPath: string;
 }
 
+export interface MovePagesBetweenDocumentsRequest {
+  sourcePath: string;
+  targetPath: string;
+  pageNumbers: number[];
+  targetPosition: number;
+}
+
 export interface PdfOperationResult {
   outputPath: string;
   pageCount: number;

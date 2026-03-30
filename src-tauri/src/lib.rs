@@ -2,10 +2,12 @@ use pdf_arranger_core::{
     copy_document as copy_document_impl,
     delete_pages as delete_pages_impl, duplicate_pages as duplicate_pages_impl,
     insert_blank_page as insert_blank_page_impl, inspect_pdf as inspect_pdf_impl,
-    merge_pdfs as merge_pdfs_impl, reorder_pages as reorder_pages_impl,
-    rotate_pdf as rotate_pdf_impl, split_pdf as split_pdf_impl, AppError,
-    CopyDocumentRequest, DeletePagesRequest, DuplicatePagesRequest,
-    InsertBlankPageRequest, MergePdfRequest, PdfDocumentSummary, PdfOperationResult,
+    merge_pdfs as merge_pdfs_impl,
+    move_pages_between_documents as move_pages_between_documents_impl,
+    reorder_pages as reorder_pages_impl, rotate_pdf as rotate_pdf_impl,
+    split_pdf as split_pdf_impl, AppError, CopyDocumentRequest, DeletePagesRequest,
+    DuplicatePagesRequest, InsertBlankPageRequest, MergePdfRequest,
+    MovePagesBetweenDocumentsRequest, PdfDocumentSummary, PdfOperationResult,
     ReorderPagesRequest, RotatePdfRequest, SplitPdfRequest,
 };
 use std::sync::Once;
@@ -68,6 +70,13 @@ fn copy_document(request: CopyDocumentRequest) -> Result<PdfOperationResult, App
     copy_document_impl(&request)
 }
 
+#[tauri::command]
+fn move_pages_between_documents(
+    request: MovePagesBetweenDocumentsRequest,
+) -> Result<PdfOperationResult, AppError> {
+    move_pages_between_documents_impl(&request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
@@ -85,7 +94,8 @@ pub fn run() {
             duplicate_pages,
             insert_blank_page,
             reorder_pages,
-            copy_document
+            copy_document,
+            move_pages_between_documents
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

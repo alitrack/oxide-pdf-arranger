@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
 import { PageGrid } from "../../documents/components/PageGrid";
@@ -97,6 +97,7 @@ export function BackendWorkspace() {
   const toggleSplitView = usePdfDocumentStore((state) => state.toggleSplitView);
   const setSecondaryDocument = usePdfDocumentStore((state) => state.setSecondaryDocument);
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
+  const movePageToDocument = usePdfDocumentStore((state) => state.movePageToDocument);
   const rotateSelectedPages = usePdfDocumentStore(
     (state) => state.rotateSelectedPages,
   );
@@ -132,6 +133,10 @@ export function BackendWorkspace() {
   const nextRedoLabel = describeRedoAction(actionHistory);
   const secondaryDocumentSession =
     openDocuments.find((session) => session.id === secondaryDocumentId) ?? null;
+  const [crossDocumentDrag, setCrossDocumentDrag] = useState<{
+    sourcePageNumber: number;
+    targetPageNumber: number | null;
+  } | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -262,6 +267,27 @@ export function BackendWorkspace() {
     }
 
     await exportDocumentCopy(outputPath);
+  }
+
+  async function handleDropOnSecondaryDocument(targetPageNumber: number | null) {
+    if (!crossDocumentDrag || !secondaryDocumentSession) {
+      return;
+    }
+
+    const targetPosition =
+      targetPageNumber === null
+        ? secondaryDocumentSession.document.pageCount
+        : secondaryDocumentSession.document.pages.findIndex(
+            (page) => page.pageNumber === targetPageNumber,
+          );
+
+    setCrossDocumentDrag(null);
+
+    await movePageToDocument(
+      secondaryDocumentSession.id,
+      crossDocumentDrag.sourcePageNumber,
+      targetPosition === -1 ? null : targetPosition,
+    );
   }
 
   return (
@@ -565,9 +591,22 @@ export function BackendWorkspace() {
               </div>
 
               <PageGrid
+                crossDocumentDropPageNumber={null}
+                dragMode={
+                  isSplitViewEnabled && secondaryDocumentSession
+                    ? "cross-source"
+                    : "reorder"
+                }
                 gridItemWidth={gridItemWidth}
                 isLoading={isInspecting}
                 isApplyingPageAction={isApplyingPageAction}
+                onCrossDocumentDragEnd={() => setCrossDocumentDrag(null)}
+                onCrossDocumentDragStart={(pageNumber) =>
+                  setCrossDocumentDrag({
+                    sourcePageNumber: pageNumber,
+                    targetPageNumber: null,
+                  })
+                }
                 onDeleteSelected={deleteSelectedPages}
                 onDuplicateSelected={duplicateSelectedPages}
                 onInsertBlankAfterSelection={insertBlankPageAfterSelection}
@@ -662,10 +701,22 @@ export function BackendWorkspace() {
                   </div>
 
                   <PageGrid
+                    crossDocumentDropPageNumber={crossDocumentDrag?.targetPageNumber ?? null}
+                    dragMode="cross-target"
                     gridItemWidth={gridItemWidth}
                     isInteractive={false}
                     isLoading={false}
                     isApplyingPageAction={true}
+                    onCrossDocumentDrop={(targetPageNumber) =>
+                      void handleDropOnSecondaryDocument(targetPageNumber)
+                    }
+                    onCrossDocumentDropTargetChange={(targetPageNumber) =>
+                      setCrossDocumentDrag((current) =>
+                        current
+                          ? { ...current, targetPageNumber }
+                          : current,
+                      )
+                    }
                     onDeleteSelected={() => {}}
                     onDuplicateSelected={() => {}}
                     onInsertBlankAfterSelection={() => {}}

@@ -136,6 +136,15 @@ pub struct ReorderPagesRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct MovePagesBetweenDocumentsRequest {
+    pub source_path: String,
+    pub target_path: String,
+    pub page_numbers: Vec<u32>,
+    pub target_position: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct CopyDocumentRequest {
     pub input_path: String,
     pub output_path: String,
@@ -456,6 +465,97 @@ pub fn reorder_pages(request: &ReorderPagesRequest) -> AppResult<PdfOperationRes
     })
 }
 
+pub fn move_pages_between_documents(
+    request: &MovePagesBetweenDocumentsRequest,
+) -> AppResult<PdfOperationResult> {
+    validate_path(&request.source_path, "source_path")?;
+    validate_path(&request.target_path, "target_path")?;
+    validate_page_numbers_not_empty(&request.page_numbers)?;
+    ensure_distinct_paths(&request.source_path, &request.target_path)?;
+    ensure_output_parent(&request.source_path)?;
+    ensure_output_parent(&request.target_path)?;
+
+    let source_doc = PdfDocument::load(&request.source_path)?;
+    let target_doc = PdfDocument::load(&request.target_path)?;
+    let source_page_count = source_doc.page_count();
+    let target_page_count = target_doc.page_count();
+    validate_page_numbers_exist(source_page_count, &request.page_numbers)?;
+    validate_target_position(target_page_count, request.target_position)?;
+
+    let moved_pages: std::collections::HashSet<_> = request.page_numbers.iter().copied().collect();
+    let remaining_source_pages: Vec<u32> = (1..=source_page_count as u32)
+        .filter(|page_number| !moved_pages.contains(page_number))
+        .collect();
+
+    if remaining_source_pages.is_empty() {
+        return Err(AppError::InvalidRequest(
+            "cannot move every page out of the source document".to_string(),
+        ));
+    }
+
+    let source_snapshot = tempfile::NamedTempFile::new()?;
+    let target_snapshot = tempfile::NamedTempFile::new()?;
+    std::fs::copy(&request.source_path, source_snapshot.path())?;
+    std::fs::copy(&request.target_path, target_snapshot.path())?;
+
+    let source_sources: Vec<_> = remaining_source_pages
+        .iter()
+        .enumerate()
+        .map(|(index, page_number)| {
+            let handle = handle_for_index(index);
+            (
+                InputSource::new(source_snapshot.path()).with_handle(handle.clone()),
+                vec![single_page_range(&handle, *page_number)],
+            )
+        })
+        .collect();
+
+    let mut target_sources = Vec::new();
+    let mut occurrence_index = 0usize;
+
+    for target_index in 0..=target_page_count {
+        if target_index == request.target_position {
+            for page_number in &request.page_numbers {
+                occurrence_index += 1;
+                let handle = handle_for_index(occurrence_index);
+                target_sources.push((
+                    InputSource::new(source_snapshot.path()).with_handle(handle.clone()),
+                    vec![single_page_range(&handle, *page_number)],
+                ));
+            }
+        }
+
+        if target_index < target_page_count {
+            occurrence_index += 1;
+            let handle = handle_for_index(occurrence_index);
+            target_sources.push((
+                InputSource::new(target_snapshot.path()).with_handle(handle.clone()),
+                vec![single_page_range(&handle, (target_index + 1) as u32)],
+            ));
+        }
+    }
+
+    info!(
+        source_path = request.source_path,
+        target_path = request.target_path,
+        page_numbers = ?request.page_numbers,
+        target_position = request.target_position,
+        "Moving pages between PDF documents"
+    );
+
+    let mut rewritten_source = MergeEngine::merge(&source_sources)?;
+    rewritten_source.save(&request.source_path)?;
+
+    let mut rewritten_target = MergeEngine::merge(&target_sources)?;
+    let target_output_page_count = rewritten_target.page_count() as u32;
+    rewritten_target.save(&request.target_path)?;
+
+    Ok(PdfOperationResult {
+        output_path: request.target_path.clone(),
+        page_count: target_output_page_count,
+    })
+}
+
 pub fn copy_document(request: &CopyDocumentRequest) -> AppResult<PdfOperationResult> {
     validate_path(&request.input_path, "input_path")?;
     validate_path(&request.output_path, "output_path")?;
@@ -522,6 +622,16 @@ fn validate_reorder_page_numbers(page_count: usize, page_numbers: &[u32]) -> App
         return Err(AppError::InvalidRequest(
             "page_numbers must not contain duplicates".to_string(),
         ));
+    }
+
+    Ok(())
+}
+
+fn validate_target_position(page_count: usize, target_position: usize) -> AppResult<()> {
+    if target_position > page_count {
+        return Err(AppError::InvalidRequest(format!(
+            "target_position must be between 0 and {page_count}"
+        )));
     }
 
     Ok(())
@@ -1193,6 +1303,54 @@ mod tests {
             output_path: output.to_string_lossy().into_owned(),
         })
         .expect_err("duplicate reorder pages should fail");
+
+        assert!(
+            matches!(error, AppError::InvalidRequest(_)),
+            "expected validation error, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn move_pages_between_documents_moves_a_page_into_the_target_position() {
+        let dir = tempdir().expect("tempdir");
+        let source = dir.path().join("move-source.pdf");
+        let target = dir.path().join("move-target.pdf");
+        create_text_fixture_with_pages(
+            &source,
+            &[("S1", 612, 792, 0), ("S2", 612, 792, 0), ("S3", 612, 792, 0)],
+        );
+        create_text_fixture_with_pages(
+            &target,
+            &[("T1", 612, 792, 0), ("T2", 612, 792, 0)],
+        );
+
+        move_pages_between_documents(&MovePagesBetweenDocumentsRequest {
+            source_path: source.to_string_lossy().into_owned(),
+            target_path: target.to_string_lossy().into_owned(),
+            page_numbers: vec![2],
+            target_position: 1,
+        })
+        .expect("move pages between documents");
+
+        assert_eq!(extract_page_markers(&source), vec!["S1", "S3"]);
+        assert_eq!(extract_page_markers(&target), vec!["T1", "S2", "T2"]);
+    }
+
+    #[test]
+    fn move_pages_between_documents_rejects_moving_every_source_page() {
+        let dir = tempdir().expect("tempdir");
+        let source = dir.path().join("move-source-invalid.pdf");
+        let target = dir.path().join("move-target-invalid.pdf");
+        create_text_fixture_with_pages(&source, &[("S1", 612, 792, 0)]);
+        create_text_fixture_with_pages(&target, &[("T1", 612, 792, 0)]);
+
+        let error = move_pages_between_documents(&MovePagesBetweenDocumentsRequest {
+            source_path: source.to_string_lossy().into_owned(),
+            target_path: target.to_string_lossy().into_owned(),
+            page_numbers: vec![1],
+            target_position: 1,
+        })
+        .expect_err("moving every page out of source should fail");
 
         assert!(
             matches!(error, AppError::InvalidRequest(_)),

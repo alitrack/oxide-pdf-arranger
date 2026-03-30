@@ -88,6 +88,11 @@ interface PdfDocumentStoreState {
   toggleSplitView(): void;
   setSecondaryDocument(documentId: string): void;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
+  movePageToDocument(
+    targetDocumentId: string,
+    sourcePageNumber: number,
+    targetPosition: number | null,
+  ): Promise<void>;
   reorderPages(pageNumbers: number[]): Promise<void>;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
   saveDocumentAs(outputPath: string): Promise<void>;
@@ -185,6 +190,15 @@ function getBoundSelection(
     selectionAnchorPage:
       nextSelectedPageNumbers[nextSelectedPageNumbers.length - 1] ?? null,
   };
+}
+
+function shiftSelectionAfterPageRemoval(
+  selectedPageNumbers: number[],
+  removedPageNumber: number,
+) {
+  return selectedPageNumbers
+    .filter((pageNumber) => pageNumber !== removedPageNumber)
+    .map((pageNumber) => (pageNumber > removedPageNumber ? pageNumber - 1 : pageNumber));
 }
 
 function getInspectErrorMessage(error: unknown) {
@@ -468,6 +482,108 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         selectionAnchorPage: anchor,
       })),
     );
+  },
+
+  async movePageToDocument(targetDocumentId, sourcePageNumber, targetPosition) {
+    const state = get();
+    const {
+      activeDocument,
+      activeDocumentId,
+      isSplitViewEnabled,
+      openDocuments,
+      secondaryDocumentId,
+      selectedPageNumbers,
+    } = state;
+
+    if (!activeDocument || !activeDocumentId) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const targetSession = getWorkspaceDocumentSession(openDocuments, targetDocumentId);
+    if (!targetSession || targetSession.id === activeDocumentId) {
+      return;
+    }
+
+    if (!activeDocument.pages.some((page) => page.pageNumber === sourcePageNumber)) {
+      set({
+        lastError: "拖动的页面不在当前主文档中。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const nextTargetPosition =
+      targetPosition === null ? targetSession.document.pageCount : targetPosition;
+
+    set({
+      isReordering: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.movePagesBetweenDocuments({
+        sourcePath: activeDocument.path,
+        targetPath: targetSession.document.path,
+        pageNumbers: [sourcePageNumber],
+        targetPosition: nextTargetPosition,
+      });
+
+      const refreshedSourceDocument = await pdfBackend.inspectPdf(activeDocument.path);
+      const refreshedTargetDocument = await pdfBackend.inspectPdf(targetSession.document.path);
+      const nextSourceSelection = getBoundSelection(
+        refreshedSourceDocument,
+        shiftSelectionAfterPageRemoval(selectedPageNumbers, sourcePageNumber),
+      );
+      const insertedPageNumber = Math.min(
+        nextTargetPosition + 1,
+        refreshedTargetDocument.pageCount,
+      );
+      const nextOpenDocuments = openDocuments.map((session) => {
+        if (session.id === activeDocumentId) {
+          return {
+            ...session,
+            document: refreshedSourceDocument,
+            actionHistory: createEmptyActionHistory(),
+            ...nextSourceSelection,
+          };
+        }
+
+        if (session.id === targetDocumentId) {
+          return {
+            ...session,
+            document: refreshedTargetDocument,
+            actionHistory: createEmptyActionHistory(),
+            selectedPageNumbers: [insertedPageNumber],
+            selectionAnchorPage: insertedPageNumber,
+          };
+        }
+
+        return session;
+      });
+
+      set({
+        ...buildActiveWorkspaceState(
+          nextOpenDocuments,
+          activeDocumentId,
+          isSplitViewEnabled,
+          secondaryDocumentId,
+        ),
+        isReordering: false,
+        lastError: null,
+        lastOperationMessage: `已将第 ${sourcePageNumber} 页移动到 ${targetSession.document.path}。`,
+      });
+    } catch (error) {
+      set({
+        isReordering: false,
+        lastError: getOperationErrorMessage(error, "跨文档移动页面失败。"),
+        lastOperationMessage: null,
+      });
+    }
   },
 
   async reorderPages(pageNumbers) {

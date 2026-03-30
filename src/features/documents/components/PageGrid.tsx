@@ -35,11 +35,17 @@ interface PageGridProps {
   pages: PdfPageInfo[];
   isLoading: boolean;
   isInteractive?: boolean;
+  dragMode?: "reorder" | "cross-source" | "cross-target" | "readonly";
+  crossDocumentDropPageNumber?: number | null;
   gridItemWidth: number;
   onZoomIn(): void;
   onZoomOut(): void;
   onResetZoom(): void;
   selectedPageNumbers: number[];
+  onCrossDocumentDragEnd?(): void;
+  onCrossDocumentDragStart?(pageNumber: number): void;
+  onCrossDocumentDrop?(targetPageNumber: number | null): void;
+  onCrossDocumentDropTargetChange?(targetPageNumber: number | null): void;
   onPageClick(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   onReorderPages(pageNumbers: number[]): void;
   onRotateSelected(rotationDegrees: 90 | 180 | 270): void;
@@ -61,6 +67,20 @@ interface SortablePageCardProps {
   isInteractive: boolean;
   isDropTarget: boolean;
   isSelected: boolean;
+  onOpenContextMenu(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
+  onSelectPage(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
+}
+
+interface StaticPageCardProps {
+  page: PdfPageInfo;
+  isCrossDocumentSource: boolean;
+  isDropTarget: boolean;
+  isInteractive: boolean;
+  isSelected: boolean;
+  onCrossDocumentDragEnd?(): void;
+  onCrossDocumentDragStart?(pageNumber: number): void;
+  onCrossDocumentDrop?(targetPageNumber: number | null): void;
+  onCrossDocumentDropTargetChange?(targetPageNumber: number | null): void;
   onOpenContextMenu(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
   onSelectPage(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
 }
@@ -158,15 +178,81 @@ function SortablePageCard({
   );
 }
 
+function StaticPageCard({
+  page,
+  isCrossDocumentSource,
+  isDropTarget,
+  isInteractive,
+  isSelected,
+  onCrossDocumentDragEnd,
+  onCrossDocumentDragStart,
+  onCrossDocumentDrop,
+  onCrossDocumentDropTargetChange,
+  onOpenContextMenu,
+  onSelectPage,
+}: StaticPageCardProps) {
+  return (
+    <button
+      aria-pressed={isSelected}
+      className={`page-card${isSelected ? " selected" : ""}${isDropTarget ? " drop-target" : ""}`}
+      draggable={isCrossDocumentSource}
+      onClick={(event) => {
+        if (isInteractive) {
+          onSelectPage(event, page.pageNumber);
+        }
+      }}
+      onContextMenu={(event) => {
+        if (isInteractive) {
+          onOpenContextMenu(event, page.pageNumber);
+        }
+      }}
+      onDragEnd={() => onCrossDocumentDragEnd?.()}
+      onDragOver={(event) => {
+        if (!onCrossDocumentDrop) {
+          return;
+        }
+
+        event.preventDefault();
+        onCrossDocumentDropTargetChange?.(page.pageNumber);
+      }}
+      onDragStart={(event) => {
+        if (!isCrossDocumentSource) {
+          return;
+        }
+
+        event.dataTransfer.effectAllowed = "move";
+        onCrossDocumentDragStart?.(page.pageNumber);
+      }}
+      onDrop={(event) => {
+        if (!onCrossDocumentDrop) {
+          return;
+        }
+
+        event.preventDefault();
+        onCrossDocumentDrop(page.pageNumber);
+      }}
+      type="button"
+    >
+      <PageCardContent page={page} />
+    </button>
+  );
+}
+
 export function PageGrid({
   pages,
   isLoading,
   isInteractive = true,
+  dragMode = "reorder",
+  crossDocumentDropPageNumber = null,
   gridItemWidth,
   onZoomIn,
   onZoomOut,
   onResetZoom,
   selectedPageNumbers,
+  onCrossDocumentDragEnd,
+  onCrossDocumentDragStart,
+  onCrossDocumentDrop,
+  onCrossDocumentDropTargetChange,
   onPageClick,
   onReorderPages,
   onRotateSelected,
@@ -304,7 +390,7 @@ export function PageGrid({
   }
 
   function handleDragStart(event: DragStartEvent) {
-    if (!isInteractive) {
+    if (!isInteractive || dragMode !== "reorder") {
       return;
     }
     setActiveDragPageNumber(Number(event.active.id));
@@ -312,7 +398,7 @@ export function PageGrid({
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    if (!isInteractive) {
+    if (!isInteractive || dragMode !== "reorder") {
       resetDragState();
       return;
     }
@@ -352,9 +438,13 @@ export function PageGrid({
           <p className="page-grid-caption">
             先用页面尺寸和旋转元数据建立网格布局，后续可直接替换成真实缩略图渲染结果。
           </p>
-          {isInteractive ? (
+          {isInteractive && dragMode === "reorder" ? (
             <p className="page-grid-accessibility" id={reorderHelpId}>
               拖拽重排：鼠标拖动页面卡片；触屏长按后拖动；键盘聚焦页面后按空格抬起，方向键移动，再按空格放下，按 Escape 取消。
+            </p>
+          ) : dragMode === "cross-source" || dragMode === "cross-target" ? (
+            <p className="page-grid-accessibility" id={reorderHelpId}>
+              跨文档移动：从主文档拖动单页到右侧对比文档；放到具体页面上会插入到该页前方，放到空白区域会追加到末尾。
             </p>
           ) : null}
           <div className="zoom-controls" role="group" aria-label="Page grid zoom controls">
@@ -379,49 +469,99 @@ export function PageGrid({
         {pages.length > 0 ? (
           <div className="page-grid-virtual-stack">
             <div style={{ height: `${virtualWindow.paddingTop}px` }} />
-            <DndContext
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-              onDragCancel={resetDragState}
-              onDragOver={(event) =>
-                setDropTargetPageNumber(event.over ? Number(event.over.id) : null)
-              }
-              onDragStart={handleDragStart}
-              sensors={sensors}
-            >
-              <SortableContext
-                items={pages.map((page) => page.pageNumber)}
-                strategy={verticalListSortingStrategy}
+            {dragMode === "reorder" ? (
+              <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+                onDragCancel={resetDragState}
+                onDragOver={(event) =>
+                  setDropTargetPageNumber(event.over ? Number(event.over.id) : null)
+                }
+                onDragStart={handleDragStart}
+                sensors={sensors}
               >
-                <div className="page-grid">
-                  {visiblePages.map((page) => (
-                    <SortablePageCard
-                      helpTextId={reorderHelpId}
-                      isInteractive={isInteractive}
-                      isDropTarget={
-                        isInteractive &&
-                        dropTargetPageNumber === page.pageNumber &&
-                        activeDragPageNumber !== page.pageNumber
-                      }
-                      isSelected={selectedPageNumbers.includes(page.pageNumber)}
-                      key={page.pageNumber}
-                      onOpenContextMenu={openContextMenu}
-                      onSelectPage={(event, pageNumber) =>
-                        onPageClick(pageNumber, getSelectionMode(event))
-                      }
-                      page={page}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-              <DragOverlay>
-                {activeDragPage ? (
-                  <div className="page-card drag-overlay">
-                    <PageCardContent page={activeDragPage} />
+                <SortableContext
+                  items={pages.map((page) => page.pageNumber)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="page-grid">
+                    {visiblePages.map((page) => (
+                      <SortablePageCard
+                        helpTextId={reorderHelpId}
+                        isInteractive={isInteractive}
+                        isDropTarget={
+                          isInteractive &&
+                          dropTargetPageNumber === page.pageNumber &&
+                          activeDragPageNumber !== page.pageNumber
+                        }
+                        isSelected={selectedPageNumbers.includes(page.pageNumber)}
+                        key={page.pageNumber}
+                        onOpenContextMenu={openContextMenu}
+                        onSelectPage={(event, pageNumber) =>
+                          onPageClick(pageNumber, getSelectionMode(event))
+                        }
+                        page={page}
+                      />
+                    ))}
                   </div>
-                ) : null}
-              </DragOverlay>
-            </DndContext>
+                </SortableContext>
+                <DragOverlay>
+                  {activeDragPage ? (
+                    <div className="page-card drag-overlay">
+                      <PageCardContent page={activeDragPage} />
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            ) : (
+              <div
+                className="page-grid"
+                onDragOver={(event) => {
+                  if (dragMode !== "cross-target") {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  onCrossDocumentDropTargetChange?.(null);
+                }}
+                onDrop={(event) => {
+                  if (dragMode !== "cross-target") {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  onCrossDocumentDrop?.(null);
+                }}
+              >
+                {visiblePages.map((page) => (
+                  <StaticPageCard
+                    isCrossDocumentSource={dragMode === "cross-source"}
+                    isDropTarget={
+                      dragMode === "cross-target" &&
+                      crossDocumentDropPageNumber === page.pageNumber
+                    }
+                    isInteractive={isInteractive}
+                    isSelected={selectedPageNumbers.includes(page.pageNumber)}
+                    key={page.pageNumber}
+                    onCrossDocumentDragEnd={onCrossDocumentDragEnd}
+                    onCrossDocumentDragStart={onCrossDocumentDragStart}
+                    onCrossDocumentDrop={
+                      dragMode === "cross-target" ? onCrossDocumentDrop : undefined
+                    }
+                    onCrossDocumentDropTargetChange={
+                      dragMode === "cross-target"
+                        ? onCrossDocumentDropTargetChange
+                        : undefined
+                    }
+                    onOpenContextMenu={openContextMenu}
+                    onSelectPage={(event, pageNumber) =>
+                      onPageClick(pageNumber, getSelectionMode(event))
+                    }
+                    page={page}
+                  />
+                ))}
+              </div>
+            )}
             <div style={{ height: `${virtualWindow.paddingBottom}px` }} />
           </div>
         ) : null}

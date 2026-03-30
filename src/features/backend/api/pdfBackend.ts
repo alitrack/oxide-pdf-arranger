@@ -5,6 +5,7 @@ import type {
   DuplicatePagesRequest,
   InsertBlankPageRequest,
   MergePdfRequest,
+  MovePagesBetweenDocumentsRequest,
   PdfDocumentSummary,
   PdfOperationResult,
   ReorderPagesRequest,
@@ -47,5 +48,9 @@ export const pdfBackend = {
 
   copyDocument(request: CopyDocumentRequest) {
     return invokeCommand<PdfOperationResult>("copy_document", { request });
+  },
+
+  movePagesBetweenDocuments(request: MovePagesBetweenDocumentsRequest) {
+    return invokeCommand<PdfOperationResult>("move_pages_between_documents", { request });
   },
 };
