@@ -3,6 +3,7 @@ import {
   createWorkspaceDocumentSession,
   projectActiveWorkspaceDocumentState,
   renameWorkspaceDocumentSession,
+  resolveSecondaryWorkspaceDocumentId,
   updateWorkspaceDocumentSession,
   upsertWorkspaceDocumentSession,
 } from "./workspaceDocuments";
@@ -88,5 +89,29 @@ describe("workspaceDocuments", () => {
       selectedPageNumbers: [2],
       selectionAnchorPage: 2,
     });
+  });
+
+  test("resolveSecondaryWorkspaceDocumentId prefers the requested secondary document when valid", () => {
+    const first = createWorkspaceDocumentSession(createDocument("/tmp/a.pdf", 2));
+    const second = createWorkspaceDocumentSession(createDocument("/tmp/b.pdf", 3));
+    const third = createWorkspaceDocumentSession(createDocument("/tmp/c.pdf", 4));
+
+    expect(
+      resolveSecondaryWorkspaceDocumentId(
+        [first, second, third],
+        "/tmp/a.pdf",
+        "/tmp/c.pdf",
+      ),
+    ).toBe("/tmp/c.pdf");
+  });
+
+  test("resolveSecondaryWorkspaceDocumentId falls back to another open document", () => {
+    const first = createWorkspaceDocumentSession(createDocument("/tmp/a.pdf", 2));
+    const second = createWorkspaceDocumentSession(createDocument("/tmp/b.pdf", 3));
+
+    expect(
+      resolveSecondaryWorkspaceDocumentId([first, second], "/tmp/a.pdf", "/tmp/a.pdf"),
+    ).toBe("/tmp/b.pdf");
+    expect(resolveSecondaryWorkspaceDocumentId([first], "/tmp/a.pdf", null)).toBeNull();
   });
 });

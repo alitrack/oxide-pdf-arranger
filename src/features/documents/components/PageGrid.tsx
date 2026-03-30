@@ -34,6 +34,7 @@ import { computeVirtualGridWindow } from "../lib/virtualGrid";
 interface PageGridProps {
   pages: PdfPageInfo[];
   isLoading: boolean;
+  isInteractive?: boolean;
   gridItemWidth: number;
   onZoomIn(): void;
   onZoomOut(): void;
@@ -57,6 +58,7 @@ interface ContextMenuState {
 interface SortablePageCardProps {
   page: PdfPageInfo;
   helpTextId: string;
+  isInteractive: boolean;
   isDropTarget: boolean;
   isSelected: boolean;
   onOpenContextMenu(event: MouseEvent<HTMLButtonElement>, pageNumber: number): void;
@@ -115,13 +117,14 @@ function PageCardContent({ page }: { page: PdfPageInfo }) {
 function SortablePageCard({
   page,
   helpTextId,
+  isInteractive,
   isDropTarget,
   isSelected,
   onOpenContextMenu,
   onSelectPage,
 }: SortablePageCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: page.pageNumber });
+    useSortable({ id: page.pageNumber, disabled: !isInteractive });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -136,8 +139,16 @@ function SortablePageCard({
       aria-label={`${getPageLabel(page)}，${isSelected ? "已选中" : "未选中"}。按空格开始重排。`}
       aria-pressed={isSelected}
       className={`page-card${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}${isDropTarget ? " drop-target" : ""}`}
-      onClick={(event) => onSelectPage(event, page.pageNumber)}
-      onContextMenu={(event) => onOpenContextMenu(event, page.pageNumber)}
+      onClick={(event) => {
+        if (isInteractive) {
+          onSelectPage(event, page.pageNumber);
+        }
+      }}
+      onContextMenu={(event) => {
+        if (isInteractive) {
+          onOpenContextMenu(event, page.pageNumber);
+        }
+      }}
       ref={setNodeRef}
       style={style}
       type="button"
@@ -150,6 +161,7 @@ function SortablePageCard({
 export function PageGrid({
   pages,
   isLoading,
+  isInteractive = true,
   gridItemWidth,
   onZoomIn,
   onZoomOut,
@@ -292,11 +304,19 @@ export function PageGrid({
   }
 
   function handleDragStart(event: DragStartEvent) {
+    if (!isInteractive) {
+      return;
+    }
     setActiveDragPageNumber(Number(event.active.id));
     setDropTargetPageNumber(Number(event.active.id));
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    if (!isInteractive) {
+      resetDragState();
+      return;
+    }
+
     const overId = event.over?.id;
     const activeId = Number(event.active.id);
     resetDragState();
@@ -332,9 +352,11 @@ export function PageGrid({
           <p className="page-grid-caption">
             先用页面尺寸和旋转元数据建立网格布局，后续可直接替换成真实缩略图渲染结果。
           </p>
-          <p className="page-grid-accessibility" id={reorderHelpId}>
-            拖拽重排：鼠标拖动页面卡片；触屏长按后拖动；键盘聚焦页面后按空格抬起，方向键移动，再按空格放下，按 Escape 取消。
-          </p>
+          {isInteractive ? (
+            <p className="page-grid-accessibility" id={reorderHelpId}>
+              拖拽重排：鼠标拖动页面卡片；触屏长按后拖动；键盘聚焦页面后按空格抬起，方向键移动，再按空格放下，按 Escape 取消。
+            </p>
+          ) : null}
           <div className="zoom-controls" role="group" aria-label="Page grid zoom controls">
             <button onClick={onZoomOut} type="button">
               Compact
@@ -375,7 +397,9 @@ export function PageGrid({
                   {visiblePages.map((page) => (
                     <SortablePageCard
                       helpTextId={reorderHelpId}
+                      isInteractive={isInteractive}
                       isDropTarget={
+                        isInteractive &&
                         dropTargetPageNumber === page.pageNumber &&
                         activeDragPageNumber !== page.pageNumber
                       }

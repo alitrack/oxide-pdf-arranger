@@ -72,6 +72,28 @@ export function updateWorkspaceDocumentSession(
   );
 }
 
+export function resolveSecondaryWorkspaceDocumentId(
+  sessions: PdfWorkspaceDocumentSession[],
+  activeDocumentId: string | null,
+  requestedSecondaryDocumentId: string | null,
+): string | null {
+  if (!activeDocumentId) {
+    return null;
+  }
+
+  if (
+    requestedSecondaryDocumentId &&
+    requestedSecondaryDocumentId !== activeDocumentId &&
+    sessions.some((session) => session.id === requestedSecondaryDocumentId)
+  ) {
+    return requestedSecondaryDocumentId;
+  }
+
+  return (
+    sessions.find((session) => session.id !== activeDocumentId)?.id ?? null
+  );
+}
+
 export function renameWorkspaceDocumentSession(
   sessions: PdfWorkspaceDocumentSession[],
   previousDocumentId: string,

@@ -16,6 +16,7 @@ import {
   createWorkspaceDocumentSession,
   getWorkspaceDocumentSession,
   projectActiveWorkspaceDocumentState,
+  resolveSecondaryWorkspaceDocumentId,
   upsertWorkspaceDocumentSession,
   type PdfWorkspaceDocumentSession,
 } from "../lib/workspaceDocuments";
@@ -61,6 +62,8 @@ interface PdfDocumentStoreState {
   draftPath: string;
   openDocuments: PdfWorkspaceDocumentSession[];
   activeDocumentId: string | null;
+  isSplitViewEnabled: boolean;
+  secondaryDocumentId: string | null;
   activeDocument: PdfDocumentSummary | null;
   lastError: string | null;
   lastOperationMessage: string | null;
@@ -82,6 +85,8 @@ interface PdfDocumentStoreState {
   setDraftPath(nextPath: string): void;
   inspectPdf(path?: string): Promise<void>;
   switchToDocument(documentId: string): void;
+  toggleSplitView(): void;
+  setSecondaryDocument(documentId: string): void;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   reorderPages(pageNumbers: number[]): Promise<void>;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
@@ -193,10 +198,23 @@ function getOperationErrorMessage(error: unknown, fallback: string) {
 function buildActiveWorkspaceState(
   openDocuments: PdfWorkspaceDocumentSession[],
   activeDocumentId: string | null,
+  isSplitViewEnabled = false,
+  secondaryDocumentId: string | null = null,
 ) {
+  const nextIsSplitViewEnabled = isSplitViewEnabled && openDocuments.length > 1;
+  const nextSecondaryDocumentId = nextIsSplitViewEnabled
+    ? resolveSecondaryWorkspaceDocumentId(
+        openDocuments,
+        activeDocumentId,
+        secondaryDocumentId,
+      )
+    : null;
+
   return {
     openDocuments,
     activeDocumentId,
+    isSplitViewEnabled: nextIsSplitViewEnabled,
+    secondaryDocumentId: nextSecondaryDocumentId,
     ...projectActiveWorkspaceDocumentState(openDocuments, activeDocumentId),
   };
 }
@@ -206,6 +224,8 @@ function updateActiveWorkspaceSessionState(
     PdfDocumentStoreState,
     | "openDocuments"
     | "activeDocumentId"
+    | "isSplitViewEnabled"
+    | "secondaryDocumentId"
   >,
   updater: (session: PdfWorkspaceDocumentSession) => PdfWorkspaceDocumentSession,
 ) {
@@ -215,7 +235,12 @@ function updateActiveWorkspaceSessionState(
   );
 
   if (!activeSession) {
-    return buildActiveWorkspaceState(state.openDocuments, state.activeDocumentId);
+    return buildActiveWorkspaceState(
+      state.openDocuments,
+      state.activeDocumentId,
+      state.isSplitViewEnabled,
+      state.secondaryDocumentId,
+    );
   }
 
   const nextSession = updater(activeSession);
@@ -223,13 +248,20 @@ function updateActiveWorkspaceSessionState(
     session.id === activeSession.id ? nextSession : session,
   );
 
-  return buildActiveWorkspaceState(nextOpenDocuments, nextSession.id);
+  return buildActiveWorkspaceState(
+    nextOpenDocuments,
+    nextSession.id,
+    state.isSplitViewEnabled,
+    state.secondaryDocumentId,
+  );
 }
 
 export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => ({
   draftPath: "",
   openDocuments: [],
   activeDocumentId: null,
+  isSplitViewEnabled: false,
+  secondaryDocumentId: null,
   activeDocument: null,
   lastError: null,
   lastOperationMessage: null,
@@ -275,7 +307,12 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         lastError: null,
         lastOperationMessage: null,
         recentFiles: nextRecentFiles,
-        ...buildActiveWorkspaceState(openDocuments, existingSession.id),
+        ...buildActiveWorkspaceState(
+          openDocuments,
+          existingSession.id,
+          get().isSplitViewEnabled,
+          get().secondaryDocumentId,
+        ),
       });
       return;
     }
@@ -310,7 +347,12 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         lastError: null,
         lastOperationMessage: null,
         recentFiles: nextRecentFiles,
-        ...buildActiveWorkspaceState(nextOpenDocuments, nextSession.id),
+        ...buildActiveWorkspaceState(
+          nextOpenDocuments,
+          nextSession.id,
+          get().isSplitViewEnabled,
+          get().secondaryDocumentId,
+        ),
       });
     } catch (error) {
       set({
@@ -322,7 +364,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   },
 
   switchToDocument(documentId) {
-    const { openDocuments } = get();
+    const { openDocuments, isSplitViewEnabled, secondaryDocumentId } = get();
     const session = getWorkspaceDocumentSession(openDocuments, documentId);
     if (!session) {
       return;
@@ -332,8 +374,42 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       draftPath: session.document.path,
       lastError: null,
       lastOperationMessage: null,
-      ...buildActiveWorkspaceState(openDocuments, documentId),
+      ...buildActiveWorkspaceState(
+        openDocuments,
+        documentId,
+        isSplitViewEnabled,
+        secondaryDocumentId,
+      ),
     });
+  },
+
+  toggleSplitView() {
+    const { activeDocumentId, isSplitViewEnabled, openDocuments, secondaryDocumentId } = get();
+
+    set(
+      buildActiveWorkspaceState(
+        openDocuments,
+        activeDocumentId,
+        !isSplitViewEnabled,
+        secondaryDocumentId,
+      ),
+    );
+  },
+
+  setSecondaryDocument(documentId) {
+    const { activeDocumentId, isSplitViewEnabled, openDocuments } = get();
+    if (!isSplitViewEnabled) {
+      return;
+    }
+
+    set(
+      buildActiveWorkspaceState(
+        openDocuments,
+        activeDocumentId,
+        isSplitViewEnabled,
+        documentId,
+      ),
+    );
   },
 
   selectPage(pageNumber, mode) {

@@ -70,6 +70,8 @@ export function BackendWorkspace() {
   const pdfPath = usePdfDocumentStore((state) => state.draftPath);
   const openDocuments = usePdfDocumentStore((state) => state.openDocuments);
   const activeDocumentId = usePdfDocumentStore((state) => state.activeDocumentId);
+  const isSplitViewEnabled = usePdfDocumentStore((state) => state.isSplitViewEnabled);
+  const secondaryDocumentId = usePdfDocumentStore((state) => state.secondaryDocumentId);
   const lastError = usePdfDocumentStore((state) => state.lastError);
   const lastOperationMessage = usePdfDocumentStore(
     (state) => state.lastOperationMessage,
@@ -92,6 +94,8 @@ export function BackendWorkspace() {
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
   const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
   const switchToDocument = usePdfDocumentStore((state) => state.switchToDocument);
+  const toggleSplitView = usePdfDocumentStore((state) => state.toggleSplitView);
+  const setSecondaryDocument = usePdfDocumentStore((state) => state.setSecondaryDocument);
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
   const rotateSelectedPages = usePdfDocumentStore(
     (state) => state.rotateSelectedPages,
@@ -126,6 +130,8 @@ export function BackendWorkspace() {
   const isFileActionBusy = isInspecting || isSaving || isExporting || isApplyingPageAction;
   const nextUndoLabel = describeUndoAction(actionHistory);
   const nextRedoLabel = describeRedoAction(actionHistory);
+  const secondaryDocumentSession =
+    openDocuments.find((session) => session.id === secondaryDocumentId) ?? null;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -394,7 +400,9 @@ export function BackendWorkspace() {
           ) : null}
 
           {documentSummary ? (
-            <div className="document-summary">
+            <div
+              className={`document-summary${isSplitViewEnabled && secondaryDocumentSession ? " split" : ""}`}
+            >
               <div className="summary-topline">
                 <div>
                   <p className="summary-label">Document</p>
@@ -421,6 +429,39 @@ export function BackendWorkspace() {
                   <div className="workspace-toolbar-chip">
                     <span>Selected</span>
                     <strong>{selectedPageNumbers.length}</strong>
+                  </div>
+                </div>
+
+                <div className="page-action-bar">
+                  <span>Workspace</span>
+                  <div className="page-action-buttons">
+                    <button
+                      className="secondary-button"
+                      disabled={openDocuments.length < 2 || isApplyingPageAction}
+                      onClick={() => toggleSplitView()}
+                      type="button"
+                    >
+                      {isSplitViewEnabled ? "Single view" : "Split view"}
+                    </button>
+                    {isSplitViewEnabled && secondaryDocumentSession ? (
+                      <label className="workspace-select-label">
+                        <span>Secondary</span>
+                        <select
+                          className="workspace-select"
+                          disabled={isApplyingPageAction}
+                          onChange={(event) => setSecondaryDocument(event.currentTarget.value)}
+                          value={secondaryDocumentSession.id}
+                        >
+                          {openDocuments
+                            .filter((session) => session.id !== activeDocumentId)
+                            .map((session) => (
+                              <option key={session.id} value={session.id}>
+                                {getDocumentTabLabel(session.document.path)}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    ) : null}
                   </div>
                 </div>
 
@@ -584,6 +625,71 @@ export function BackendWorkspace() {
                   <span>Touch: long press a page card to start drag reorder</span>
                 </div>
               </div>
+
+              {isSplitViewEnabled && secondaryDocumentSession ? (
+                <div className="secondary-document-panel">
+                  <div className="summary-topline">
+                    <div>
+                      <p className="summary-label">Secondary Document</p>
+                      <h3>{secondaryDocumentSession.document.path}</h3>
+                    </div>
+                    <div className="summary-pill">
+                      <span>{secondaryDocumentSession.document.pageCount}</span>
+                      <small>pages</small>
+                    </div>
+                  </div>
+
+                  <div className="summary-selection">
+                    <span>Selected</span>
+                    <strong>{secondaryDocumentSession.selectedPageNumbers.length}</strong>
+                    <small>
+                      {secondaryDocumentSession.selectedPageNumbers.join(", ") || "none"}
+                    </small>
+                  </div>
+
+                  <div className="page-action-bar">
+                    <span>Secondary View</span>
+                    <div className="page-action-buttons">
+                      <button
+                        className="secondary-button"
+                        disabled={isApplyingPageAction}
+                        onClick={() => switchToDocument(secondaryDocumentSession.id)}
+                        type="button"
+                      >
+                        Make primary
+                      </button>
+                    </div>
+                  </div>
+
+                  <PageGrid
+                    gridItemWidth={gridItemWidth}
+                    isInteractive={false}
+                    isLoading={false}
+                    isApplyingPageAction={true}
+                    onDeleteSelected={() => {}}
+                    onDuplicateSelected={() => {}}
+                    onInsertBlankAfterSelection={() => {}}
+                    onPageClick={() => {}}
+                    onReorderPages={() => {}}
+                    onResetZoom={resetGridZoom}
+                    onRotateSelected={() => {}}
+                    onZoomIn={zoomInGrid}
+                    onZoomOut={zoomOutGrid}
+                    pages={secondaryDocumentSession.document.pages}
+                    selectedPageNumbers={secondaryDocumentSession.selectedPageNumbers}
+                  />
+
+                  <div className="workspace-statusbar">
+                    <span>Page count: {secondaryDocumentSession.document.pageCount}</span>
+                    <span>Selected: {secondaryDocumentSession.selectedPageNumbers.length}</span>
+                    <span>Undo: {secondaryDocumentSession.actionHistory.undoStack.length}</span>
+                    <span>Redo: {secondaryDocumentSession.actionHistory.redoStack.length}</span>
+                    <span className="statusbar-path">
+                      {secondaryDocumentSession.document.path}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="empty-state">
