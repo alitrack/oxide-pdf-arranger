@@ -11,6 +11,7 @@ import {
   getSingleSavePath,
   getSingleSelectedPath,
 } from "../../files/lib/dialogSelection";
+import { hasWorkspaceDocumentSessionHistory } from "../../documents/lib/workspaceDocuments";
 
 const operationCards = [
   {
@@ -72,6 +73,9 @@ export function BackendWorkspace() {
   const activeDocumentId = usePdfDocumentStore((state) => state.activeDocumentId);
   const isSplitViewEnabled = usePdfDocumentStore((state) => state.isSplitViewEnabled);
   const secondaryDocumentId = usePdfDocumentStore((state) => state.secondaryDocumentId);
+  const mergeSelectionDocumentIds = usePdfDocumentStore(
+    (state) => state.mergeSelectionDocumentIds,
+  );
   const lastError = usePdfDocumentStore((state) => state.lastError);
   const lastOperationMessage = usePdfDocumentStore(
     (state) => state.lastOperationMessage,
@@ -80,6 +84,7 @@ export function BackendWorkspace() {
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
   const isSaving = usePdfDocumentStore((state) => state.isSaving);
   const isExporting = usePdfDocumentStore((state) => state.isExporting);
+  const isMerging = usePdfDocumentStore((state) => state.isMerging);
   const isUndoing = usePdfDocumentStore((state) => state.isUndoing);
   const isRedoing = usePdfDocumentStore((state) => state.isRedoing);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
@@ -93,9 +98,17 @@ export function BackendWorkspace() {
   const actionHistory = usePdfDocumentStore((state) => state.actionHistory);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
   const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
+  const restoreWorkspace = usePdfDocumentStore((state) => state.restoreWorkspace);
   const switchToDocument = usePdfDocumentStore((state) => state.switchToDocument);
+  const closeDocument = usePdfDocumentStore((state) => state.closeDocument);
   const toggleSplitView = usePdfDocumentStore((state) => state.toggleSplitView);
   const setSecondaryDocument = usePdfDocumentStore((state) => state.setSecondaryDocument);
+  const toggleDocumentMergeSelection = usePdfDocumentStore(
+    (state) => state.toggleDocumentMergeSelection,
+  );
+  const mergeSelectedDocuments = usePdfDocumentStore(
+    (state) => state.mergeSelectedDocuments,
+  );
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
   const movePageToDocument = usePdfDocumentStore((state) => state.movePageToDocument);
   const rotateSelectedPages = usePdfDocumentStore(
@@ -128,15 +141,39 @@ export function BackendWorkspace() {
     isDeleting ||
     isDuplicating ||
     isInsertingBlank;
-  const isFileActionBusy = isInspecting || isSaving || isExporting || isApplyingPageAction;
+  const isFileActionBusy =
+    isInspecting || isSaving || isExporting || isMerging || isApplyingPageAction;
   const nextUndoLabel = describeUndoAction(actionHistory);
   const nextRedoLabel = describeRedoAction(actionHistory);
   const secondaryDocumentSession =
     openDocuments.find((session) => session.id === secondaryDocumentId) ?? null;
+  const selectedMergeSessions = openDocuments.filter((session) =>
+    mergeSelectionDocumentIds.includes(session.id),
+  );
+  const hasSessionHistory = openDocuments.some(hasWorkspaceDocumentSessionHistory);
   const [crossDocumentDrag, setCrossDocumentDrag] = useState<{
     sourcePageNumber: number;
     targetPageNumber: number | null;
   } | null>(null);
+
+  useEffect(() => {
+    void restoreWorkspace();
+  }, [restoreWorkspace]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasSessionHistory) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue =
+        "页面改动已写入磁盘，但关闭窗口会清空当前工作区的撤销/重做历史。";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasSessionHistory]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -267,6 +304,34 @@ export function BackendWorkspace() {
     }
 
     await exportDocumentCopy(outputPath);
+  }
+
+  async function handleMergeDocuments() {
+    if (selectedMergeSessions.length < 2) {
+      return;
+    }
+
+    const basePath = selectedMergeSessions[0]?.document.path ?? documentSummary?.path;
+    const defaultPath =
+      basePath?.replace(/\.pdf$/i, "-merged.pdf") ?? "merged.pdf";
+    const outputPath = getSingleSavePath(
+      await save({
+        defaultPath,
+        filters: [
+          {
+            name: "PDF",
+            extensions: ["pdf"],
+          },
+        ],
+        title: "Merge selected documents",
+      }),
+    );
+
+    if (!outputPath) {
+      return;
+    }
+
+    await mergeSelectedDocuments(outputPath);
   }
 
   async function handleDropOnSecondaryDocument(targetPageNumber: number | null) {
@@ -408,19 +473,29 @@ export function BackendWorkspace() {
           {openDocuments.length > 0 ? (
             <div className="workspace-tabs" role="tablist" aria-label="Open PDF documents">
               {openDocuments.map((session) => (
-                <button
-                  aria-selected={activeDocumentId === session.id}
-                  className={`workspace-tab${activeDocumentId === session.id ? " active" : ""}`}
-                  disabled={isApplyingPageAction}
-                  key={session.id}
-                  onClick={() => switchToDocument(session.id)}
-                  role="tab"
-                  title={session.document.path}
-                  type="button"
-                >
-                  <span>{getDocumentTabLabel(session.document.path)}</span>
-                  <small>{session.document.pageCount} pages</small>
-                </button>
+                <div className="workspace-tab-shell" key={session.id}>
+                  <button
+                    aria-selected={activeDocumentId === session.id}
+                    className={`workspace-tab${activeDocumentId === session.id ? " active" : ""}`}
+                    disabled={isApplyingPageAction}
+                    onClick={() => switchToDocument(session.id)}
+                    role="tab"
+                    title={session.document.path}
+                    type="button"
+                  >
+                    <span>{getDocumentTabLabel(session.document.path)}</span>
+                    <small>{session.document.pageCount} pages</small>
+                  </button>
+                  <button
+                    aria-label={`Close ${getDocumentTabLabel(session.document.path)}`}
+                    className="workspace-tab-close"
+                    disabled={isApplyingPageAction}
+                    onClick={() => closeDocument(session.id)}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
             </div>
           ) : null}
@@ -488,8 +563,35 @@ export function BackendWorkspace() {
                         </select>
                       </label>
                     ) : null}
+                    <button
+                      className="secondary-button"
+                      disabled={selectedMergeSessions.length < 2 || isFileActionBusy}
+                      onClick={() => void handleMergeDocuments()}
+                      type="button"
+                    >
+                      {isMerging ? "Merging..." : "Merge selected"}
+                    </button>
                   </div>
                 </div>
+
+                {openDocuments.length > 1 ? (
+                  <div className="page-action-bar merge-selection-bar">
+                    <span>Merge scope</span>
+                    <div className="merge-selection-list">
+                      {openDocuments.map((session) => (
+                        <label className="merge-selection-option" key={session.id}>
+                          <input
+                            checked={mergeSelectionDocumentIds.includes(session.id)}
+                            disabled={isFileActionBusy}
+                            onChange={() => toggleDocumentMergeSelection(session.id)}
+                            type="checkbox"
+                          />
+                          <span>{getDocumentTabLabel(session.document.path)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="page-action-bar">
                   <span>History</span>

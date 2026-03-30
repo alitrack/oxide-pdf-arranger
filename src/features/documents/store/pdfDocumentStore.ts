@@ -15,11 +15,21 @@ import { buildHistorySnapshotPaths } from "../lib/historySnapshots";
 import {
   createWorkspaceDocumentSession,
   getWorkspaceDocumentSession,
+  hasWorkspaceDocumentSessionHistory,
+  normalizeMergeSelectionDocumentIds,
   projectActiveWorkspaceDocumentState,
+  removeWorkspaceDocumentSession,
+  renameWorkspaceDocumentSession,
+  resolveNextActiveWorkspaceDocumentId,
   resolveSecondaryWorkspaceDocumentId,
   upsertWorkspaceDocumentSession,
   type PdfWorkspaceDocumentSession,
 } from "../lib/workspaceDocuments";
+import {
+  clearStoredWorkspaceState,
+  getStoredWorkspaceState,
+  persistWorkspaceState,
+} from "../lib/workspacePersistence";
 import {
   applyRotationPreview,
   createInPlaceRotateRequest,
@@ -32,6 +42,11 @@ const MAX_GRID_ITEM_WIDTH = 260;
 const RECENT_FILES_LIMIT = 6;
 const RECENT_FILES_STORAGE_KEY = "oxide-pdf-arranger.recent-files";
 const MAX_OPEN_DOCUMENTS = 10;
+
+function getDocumentLabel(path: string) {
+  const parts = path.split(/[/\\]/);
+  return parts[parts.length - 1] ?? path;
+}
 
 function getStoredRecentFiles() {
   if (typeof window === "undefined") {
@@ -64,12 +79,15 @@ interface PdfDocumentStoreState {
   activeDocumentId: string | null;
   isSplitViewEnabled: boolean;
   secondaryDocumentId: string | null;
+  mergeSelectionDocumentIds: string[];
   activeDocument: PdfDocumentSummary | null;
   lastError: string | null;
   lastOperationMessage: string | null;
   isInspecting: boolean;
   isSaving: boolean;
   isExporting: boolean;
+  isMerging: boolean;
+  hasAttemptedWorkspaceRestore: boolean;
   isUndoing: boolean;
   isRedoing: boolean;
   isRotating: boolean;
@@ -84,9 +102,13 @@ interface PdfDocumentStoreState {
   actionHistory: ActionHistoryState;
   setDraftPath(nextPath: string): void;
   inspectPdf(path?: string): Promise<void>;
+  restoreWorkspace(): Promise<void>;
   switchToDocument(documentId: string): void;
+  closeDocument(documentId: string): void;
   toggleSplitView(): void;
   setSecondaryDocument(documentId: string): void;
+  toggleDocumentMergeSelection(documentId: string): void;
+  mergeSelectedDocuments(outputPath: string): Promise<void>;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   movePageToDocument(
     targetDocumentId: string,
@@ -233,6 +255,33 @@ function buildActiveWorkspaceState(
   };
 }
 
+function persistWorkspaceSnapshot(
+  state: Pick<
+    PdfDocumentStoreState,
+    | "openDocuments"
+    | "activeDocumentId"
+    | "isSplitViewEnabled"
+    | "secondaryDocumentId"
+    | "mergeSelectionDocumentIds"
+  >,
+) {
+  if (state.openDocuments.length === 0 || !state.activeDocumentId) {
+    clearStoredWorkspaceState();
+    return;
+  }
+
+  persistWorkspaceState({
+    openDocumentPaths: state.openDocuments.map((session) => session.document.path),
+    activeDocumentId: state.activeDocumentId,
+    isSplitViewEnabled: state.isSplitViewEnabled,
+    secondaryDocumentId: state.secondaryDocumentId,
+    mergeSelectionDocumentIds: normalizeMergeSelectionDocumentIds(
+      state.openDocuments,
+      state.mergeSelectionDocumentIds,
+    ),
+  });
+}
+
 function updateActiveWorkspaceSessionState(
   state: Pick<
     PdfDocumentStoreState,
@@ -276,12 +325,15 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   activeDocumentId: null,
   isSplitViewEnabled: false,
   secondaryDocumentId: null,
+  mergeSelectionDocumentIds: [],
   activeDocument: null,
   lastError: null,
   lastOperationMessage: null,
   isInspecting: false,
   isSaving: false,
   isExporting: false,
+  isMerging: false,
+  hasAttemptedWorkspaceRestore: false,
   isUndoing: false,
   isRedoing: false,
   isRotating: false,
@@ -300,7 +352,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   },
 
   async inspectPdf(path) {
-    const { openDocuments, recentFiles } = get();
+    const { mergeSelectionDocumentIds, openDocuments, recentFiles } = get();
     const nextPath = (path ?? get().draftPath).trim();
     if (!nextPath) {
       set({
@@ -315,7 +367,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
 
     const existingSession = getWorkspaceDocumentSession(openDocuments, nextPath);
     if (existingSession) {
-      set({
+      const nextState = {
         draftPath: nextPath,
         isInspecting: false,
         lastError: null,
@@ -327,6 +379,15 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
           get().isSplitViewEnabled,
           get().secondaryDocumentId,
         ),
+      };
+
+      set(nextState);
+      persistWorkspaceSnapshot({
+        openDocuments,
+        activeDocumentId: existingSession.id,
+        isSplitViewEnabled: nextState.isSplitViewEnabled,
+        secondaryDocumentId: nextState.secondaryDocumentId,
+        mergeSelectionDocumentIds,
       });
       return;
     }
@@ -355,18 +416,30 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         get().openDocuments,
         nextSession,
       );
-
-      set({
+      const nextState = {
         isInspecting: false,
         lastError: null,
         lastOperationMessage: null,
         recentFiles: nextRecentFiles,
+        mergeSelectionDocumentIds: normalizeMergeSelectionDocumentIds(
+          nextOpenDocuments,
+          [...mergeSelectionDocumentIds, nextSession.id],
+        ),
         ...buildActiveWorkspaceState(
           nextOpenDocuments,
           nextSession.id,
           get().isSplitViewEnabled,
           get().secondaryDocumentId,
         ),
+      };
+
+      set(nextState);
+      persistWorkspaceSnapshot({
+        openDocuments: nextOpenDocuments,
+        activeDocumentId: nextSession.id,
+        isSplitViewEnabled: nextState.isSplitViewEnabled,
+        secondaryDocumentId: nextState.secondaryDocumentId,
+        mergeSelectionDocumentIds: nextState.mergeSelectionDocumentIds,
       });
     } catch (error) {
       set({
@@ -377,14 +450,110 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     }
   },
 
+  async restoreWorkspace() {
+    const { hasAttemptedWorkspaceRestore, openDocuments } = get();
+    if (hasAttemptedWorkspaceRestore || openDocuments.length > 0) {
+      if (!hasAttemptedWorkspaceRestore) {
+        set({ hasAttemptedWorkspaceRestore: true });
+      }
+      return;
+    }
+
+    set({ hasAttemptedWorkspaceRestore: true });
+    const persistedWorkspace = getStoredWorkspaceState();
+
+    if (!persistedWorkspace) {
+      return;
+    }
+
+    set({
+      isInspecting: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    const restoredSessions: PdfWorkspaceDocumentSession[] = [];
+    const skippedPaths: string[] = [];
+
+    for (const path of persistedWorkspace.openDocumentPaths) {
+      try {
+        const document = await pdfBackend.inspectPdf(path);
+        restoredSessions.push(createWorkspaceDocumentSession(document));
+      } catch {
+        skippedPaths.push(path);
+      }
+    }
+
+    if (restoredSessions.length === 0) {
+      clearStoredWorkspaceState();
+      set({
+        isInspecting: false,
+        draftPath: "",
+        openDocuments: [],
+        activeDocumentId: null,
+        isSplitViewEnabled: false,
+        secondaryDocumentId: null,
+        mergeSelectionDocumentIds: [],
+        activeDocument: null,
+        selectedPageNumbers: [],
+        selectionAnchorPage: null,
+        actionHistory: createEmptyActionHistory(),
+        lastError: null,
+        lastOperationMessage:
+          skippedPaths.length > 0
+            ? `上次工作区中的 ${skippedPaths.length} 个文档已不可恢复，已清除恢复记录。`
+            : null,
+      });
+      return;
+    }
+
+    const requestedActiveDocumentId =
+      restoredSessions.find(
+        (session) => session.id === persistedWorkspace.activeDocumentId,
+      )?.id ?? restoredSessions[0]?.id ?? null;
+    const nextState = {
+      isInspecting: false,
+      draftPath: requestedActiveDocumentId ?? "",
+      lastError: null,
+      lastOperationMessage:
+        skippedPaths.length > 0
+          ? `已恢复 ${restoredSessions.length} 个文档，跳过 ${skippedPaths.length} 个不可访问文档。撤销历史不会跨重启保留。`
+          : `已恢复 ${restoredSessions.length} 个文档。撤销历史不会跨重启保留。`,
+      mergeSelectionDocumentIds: normalizeMergeSelectionDocumentIds(
+        restoredSessions,
+        persistedWorkspace.mergeSelectionDocumentIds,
+      ),
+      ...buildActiveWorkspaceState(
+        restoredSessions,
+        requestedActiveDocumentId,
+        persistedWorkspace.isSplitViewEnabled,
+        persistedWorkspace.secondaryDocumentId,
+      ),
+    };
+
+    set(nextState);
+    persistWorkspaceSnapshot({
+      openDocuments: restoredSessions,
+      activeDocumentId: nextState.activeDocumentId,
+      isSplitViewEnabled: nextState.isSplitViewEnabled,
+      secondaryDocumentId: nextState.secondaryDocumentId,
+      mergeSelectionDocumentIds: nextState.mergeSelectionDocumentIds,
+    });
+  },
+
   switchToDocument(documentId) {
-    const { openDocuments, isSplitViewEnabled, secondaryDocumentId } = get();
+    const {
+      mergeSelectionDocumentIds,
+      openDocuments,
+      isSplitViewEnabled,
+      secondaryDocumentId,
+    } = get();
     const session = getWorkspaceDocumentSession(openDocuments, documentId);
     if (!session) {
       return;
     }
 
-    set({
+    const nextState = {
       draftPath: session.document.path,
       lastError: null,
       lastOperationMessage: null,
@@ -394,36 +563,254 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         isSplitViewEnabled,
         secondaryDocumentId,
       ),
+    };
+
+    set(nextState);
+    persistWorkspaceSnapshot({
+      openDocuments,
+      activeDocumentId: documentId,
+      isSplitViewEnabled: nextState.isSplitViewEnabled,
+      secondaryDocumentId: nextState.secondaryDocumentId,
+      mergeSelectionDocumentIds,
+    });
+  },
+
+  closeDocument(documentId) {
+    const state = get();
+    const targetDocumentId = documentId || state.activeDocumentId;
+    if (!targetDocumentId) {
+      return;
+    }
+
+    const session = getWorkspaceDocumentSession(state.openDocuments, targetDocumentId);
+    if (!session) {
+      return;
+    }
+
+    if (
+      hasWorkspaceDocumentSessionHistory(session) &&
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `“${getDocumentLabel(session.document.path)}”中的页面改动已写回磁盘，但关闭标签会清空本次会话的撤销/重做历史。确定关闭吗？`,
+      )
+    ) {
+      return;
+    }
+
+    const nextOpenDocuments = removeWorkspaceDocumentSession(
+      state.openDocuments,
+      targetDocumentId,
+    );
+    const nextActiveDocumentId = resolveNextActiveWorkspaceDocumentId(
+      state.openDocuments,
+      targetDocumentId,
+      state.activeDocumentId,
+    );
+    const nextState = {
+      draftPath: nextActiveDocumentId ?? "",
+      lastError: null,
+      lastOperationMessage: `已关闭 ${getDocumentLabel(session.document.path)}。`,
+      mergeSelectionDocumentIds: normalizeMergeSelectionDocumentIds(
+        nextOpenDocuments,
+        state.mergeSelectionDocumentIds.filter((id) => id !== targetDocumentId),
+      ),
+      ...buildActiveWorkspaceState(
+        nextOpenDocuments,
+        nextActiveDocumentId,
+        state.isSplitViewEnabled,
+        state.secondaryDocumentId,
+      ),
+    };
+
+    set(nextState);
+    persistWorkspaceSnapshot({
+      openDocuments: nextOpenDocuments,
+      activeDocumentId: nextState.activeDocumentId,
+      isSplitViewEnabled: nextState.isSplitViewEnabled,
+      secondaryDocumentId: nextState.secondaryDocumentId,
+      mergeSelectionDocumentIds: nextState.mergeSelectionDocumentIds,
     });
   },
 
   toggleSplitView() {
-    const { activeDocumentId, isSplitViewEnabled, openDocuments, secondaryDocumentId } = get();
-
-    set(
-      buildActiveWorkspaceState(
-        openDocuments,
-        activeDocumentId,
-        !isSplitViewEnabled,
-        secondaryDocumentId,
-      ),
+    const {
+      activeDocumentId,
+      isSplitViewEnabled,
+      mergeSelectionDocumentIds,
+      openDocuments,
+      secondaryDocumentId,
+    } = get();
+    const nextState = buildActiveWorkspaceState(
+      openDocuments,
+      activeDocumentId,
+      !isSplitViewEnabled,
+      secondaryDocumentId,
     );
+
+    set(nextState);
+    persistWorkspaceSnapshot({
+      openDocuments,
+      activeDocumentId: nextState.activeDocumentId,
+      isSplitViewEnabled: nextState.isSplitViewEnabled,
+      secondaryDocumentId: nextState.secondaryDocumentId,
+      mergeSelectionDocumentIds,
+    });
   },
 
   setSecondaryDocument(documentId) {
-    const { activeDocumentId, isSplitViewEnabled, openDocuments } = get();
+    const {
+      activeDocumentId,
+      isSplitViewEnabled,
+      mergeSelectionDocumentIds,
+      openDocuments,
+    } = get();
     if (!isSplitViewEnabled) {
       return;
     }
 
-    set(
-      buildActiveWorkspaceState(
-        openDocuments,
-        activeDocumentId,
-        isSplitViewEnabled,
-        documentId,
-      ),
+    const nextState = buildActiveWorkspaceState(
+      openDocuments,
+      activeDocumentId,
+      isSplitViewEnabled,
+      documentId,
     );
+
+    set(nextState);
+    persistWorkspaceSnapshot({
+      openDocuments,
+      activeDocumentId: nextState.activeDocumentId,
+      isSplitViewEnabled: nextState.isSplitViewEnabled,
+      secondaryDocumentId: nextState.secondaryDocumentId,
+      mergeSelectionDocumentIds,
+    });
+  },
+
+  toggleDocumentMergeSelection(documentId) {
+    const { mergeSelectionDocumentIds, openDocuments } = get();
+    if (!openDocuments.some((session) => session.id === documentId)) {
+      return;
+    }
+
+    const nextRequestedSelection = mergeSelectionDocumentIds.includes(documentId)
+      ? mergeSelectionDocumentIds.filter((id) => id !== documentId)
+      : [...mergeSelectionDocumentIds, documentId];
+    const nextMergeSelectionDocumentIds =
+      nextRequestedSelection.length > 0
+        ? normalizeMergeSelectionDocumentIds(openDocuments, nextRequestedSelection)
+        : [];
+
+    set({
+      mergeSelectionDocumentIds: nextMergeSelectionDocumentIds,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+    persistWorkspaceSnapshot({
+      openDocuments,
+      activeDocumentId: get().activeDocumentId,
+      isSplitViewEnabled: get().isSplitViewEnabled,
+      secondaryDocumentId: get().secondaryDocumentId,
+      mergeSelectionDocumentIds: nextMergeSelectionDocumentIds,
+    });
+  },
+
+  async mergeSelectedDocuments(outputPath) {
+    const {
+      isSplitViewEnabled,
+      mergeSelectionDocumentIds,
+      openDocuments,
+      recentFiles,
+      secondaryDocumentId,
+    } = get();
+    const nextOutputPath = outputPath.trim();
+    const selectedDocumentIds = normalizeMergeSelectionDocumentIds(
+      openDocuments,
+      mergeSelectionDocumentIds,
+    );
+    const selectedSessions = openDocuments.filter((session) =>
+      selectedDocumentIds.includes(session.id),
+    );
+
+    if (selectedSessions.length < 2) {
+      set({
+        lastError: "请至少选择两个文档再执行合并。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (!nextOutputPath) {
+      set({
+        lastError: "请选择有效的合并输出路径。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (
+      openDocuments.some(
+        (session) => session.document.path === nextOutputPath,
+      )
+    ) {
+      set({
+        lastError: "合并输出路径不能与当前工作区中已打开的文档重复。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isMerging: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.mergePdfs({
+        inputPaths: selectedSessions.map((session) => session.document.path),
+        outputPath: nextOutputPath,
+      });
+      const mergedDocument = await pdfBackend.inspectPdf(nextOutputPath);
+      const mergedSession = createWorkspaceDocumentSession(mergedDocument);
+      const nextOpenDocuments = upsertWorkspaceDocumentSession(
+        openDocuments,
+        mergedSession,
+      );
+      const nextRecentFiles = updateRecentFiles(
+        recentFiles,
+        nextOutputPath,
+        RECENT_FILES_LIMIT,
+      );
+      const nextState = {
+        isMerging: false,
+        draftPath: nextOutputPath,
+        lastError: null,
+        lastOperationMessage: `已按当前顺序合并 ${selectedSessions.length} 个文档到 ${nextOutputPath}。`,
+        recentFiles: nextRecentFiles,
+        mergeSelectionDocumentIds,
+        ...buildActiveWorkspaceState(
+          nextOpenDocuments,
+          mergedSession.id,
+          isSplitViewEnabled,
+          secondaryDocumentId,
+        ),
+      };
+
+      persistRecentFiles(nextRecentFiles);
+      set(nextState);
+      persistWorkspaceSnapshot({
+        openDocuments: nextOpenDocuments,
+        activeDocumentId: mergedSession.id,
+        isSplitViewEnabled: nextState.isSplitViewEnabled,
+        secondaryDocumentId: nextState.secondaryDocumentId,
+        mergeSelectionDocumentIds,
+      });
+    } catch (error) {
+      set({
+        isMerging: false,
+        lastError: getOperationErrorMessage(error, "合并文档失败。"),
+        lastOperationMessage: null,
+      });
+    }
   },
 
   selectPage(pageNumber, mode) {
@@ -768,7 +1155,13 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   },
 
   async saveDocumentAs(outputPath) {
-    const { activeDocument, openDocuments, selectedPageNumbers, recentFiles } = get();
+    const {
+      activeDocument,
+      mergeSelectionDocumentIds,
+      openDocuments,
+      selectedPageNumbers,
+      recentFiles,
+    } = get();
     const nextOutputPath = outputPath.trim();
 
     if (!activeDocument) {
@@ -818,8 +1211,13 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         RECENT_FILES_LIMIT,
       );
       persistRecentFiles(nextRecentFiles);
-
-      set({
+      const nextMergeSelectionDocumentIds = normalizeMergeSelectionDocumentIds(
+        renameWorkspaceDocumentSession(openDocuments, activeDocument.path, refreshedDocument),
+        mergeSelectionDocumentIds.map((documentId) =>
+          documentId === activeDocument.path ? nextOutputPath : documentId,
+        ),
+      );
+      const nextState = {
         ...updateActiveWorkspaceSessionState(get(), (session) => ({
           ...session,
           id: nextOutputPath,
@@ -832,6 +1230,20 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         lastError: null,
         lastOperationMessage: `已另存为 ${nextOutputPath}。`,
         recentFiles: nextRecentFiles,
+        mergeSelectionDocumentIds: nextMergeSelectionDocumentIds,
+      };
+
+      set(nextState);
+      persistWorkspaceSnapshot({
+        openDocuments: renameWorkspaceDocumentSession(
+          openDocuments,
+          activeDocument.path,
+          refreshedDocument,
+        ),
+        activeDocumentId: nextOutputPath,
+        isSplitViewEnabled: nextState.isSplitViewEnabled,
+        secondaryDocumentId: nextState.secondaryDocumentId,
+        mergeSelectionDocumentIds: nextMergeSelectionDocumentIds,
       });
     } catch (error) {
       set({

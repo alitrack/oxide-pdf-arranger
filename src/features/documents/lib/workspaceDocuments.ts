@@ -72,6 +72,39 @@ export function updateWorkspaceDocumentSession(
   );
 }
 
+export function removeWorkspaceDocumentSession(
+  sessions: PdfWorkspaceDocumentSession[],
+  documentId: string,
+): PdfWorkspaceDocumentSession[] {
+  return sessions.filter((session) => session.id !== documentId);
+}
+
+export function resolveNextActiveWorkspaceDocumentId(
+  sessions: PdfWorkspaceDocumentSession[],
+  removedDocumentId: string,
+  activeDocumentId: string | null,
+): string | null {
+  const remainingSessions = removeWorkspaceDocumentSession(sessions, removedDocumentId);
+
+  if (remainingSessions.length === 0) {
+    return null;
+  }
+
+  if (activeDocumentId && activeDocumentId !== removedDocumentId) {
+    return (
+      remainingSessions.find((session) => session.id === activeDocumentId)?.id ??
+      remainingSessions[0]?.id ??
+      null
+    );
+  }
+
+  const removedIndex = sessions.findIndex((session) => session.id === removedDocumentId);
+  const nextSession =
+    remainingSessions[removedIndex] ?? remainingSessions[remainingSessions.length - 1];
+
+  return nextSession?.id ?? null;
+}
+
 export function resolveSecondaryWorkspaceDocumentId(
   sessions: PdfWorkspaceDocumentSession[],
   activeDocumentId: string | null,
@@ -107,6 +140,26 @@ export function renameWorkspaceDocumentSession(
           document: nextDocument,
         }
       : session,
+  );
+}
+
+export function normalizeMergeSelectionDocumentIds(
+  sessions: PdfWorkspaceDocumentSession[],
+  requestedDocumentIds: string[],
+): string[] {
+  const sessionIds = sessions.map((session) => session.id);
+  const requested = new Set(requestedDocumentIds);
+  const normalized = sessionIds.filter((documentId) => requested.has(documentId));
+
+  return normalized.length > 0 ? normalized : sessionIds;
+}
+
+export function hasWorkspaceDocumentSessionHistory(
+  session: Pick<PdfWorkspaceDocumentSession, "actionHistory">,
+): boolean {
+  return (
+    session.actionHistory.undoStack.length > 0 ||
+    session.actionHistory.redoStack.length > 0
   );
 }
 

@@ -458,8 +458,15 @@ button {
   padding-bottom: 4px;
 }
 
+.workspace-tab-shell {
+  min-width: 190px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
 .workspace-tab {
-  min-width: 160px;
   border: 1px solid var(--preview-border);
   border-radius: 16px;
   background: color-mix(in srgb, var(--surface-strong) 86%, transparent);
@@ -485,6 +492,26 @@ button {
 }
 
 .workspace-tab:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.workspace-tab-close {
+  border: 1px solid var(--button-border);
+  border-radius: 14px;
+  background: var(--button-bg);
+  color: var(--ink-soft);
+  padding: 0 12px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.workspace-tab-close:hover {
+  color: var(--accent-strong);
+  background: var(--hover-bg);
+}
+
+.workspace-tab-close:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -648,6 +675,33 @@ button {
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.merge-selection-bar {
+  align-items: flex-start;
+}
+
+.merge-selection-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.merge-selection-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--button-border);
+  background: color-mix(in srgb, var(--surface-strong) 86%, transparent);
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.merge-selection-option input {
+  margin: 0;
 }
 
 .secondary-button {
@@ -1087,6 +1141,21 @@ kbd {
   .summary-metadata,
   .page-grid-header {
     grid-template-columns: 1fr;
+  }
+
+  .workspace-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+  }
+
+  .workspace-tab-shell {
+    min-width: 0;
+  }
+
+  .merge-selection-list,
+  .page-action-buttons {
+    width: 100%;
   }
 
   .page-grid-header {

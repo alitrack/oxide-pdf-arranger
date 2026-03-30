@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   createWorkspaceDocumentSession,
+  hasWorkspaceDocumentSessionHistory,
+  normalizeMergeSelectionDocumentIds,
   projectActiveWorkspaceDocumentState,
+  removeWorkspaceDocumentSession,
+  resolveNextActiveWorkspaceDocumentId,
   renameWorkspaceDocumentSession,
   resolveSecondaryWorkspaceDocumentId,
   updateWorkspaceDocumentSession,
@@ -113,5 +117,102 @@ describe("workspaceDocuments", () => {
       resolveSecondaryWorkspaceDocumentId([first, second], "/tmp/a.pdf", "/tmp/a.pdf"),
     ).toBe("/tmp/b.pdf");
     expect(resolveSecondaryWorkspaceDocumentId([first], "/tmp/a.pdf", null)).toBeNull();
+  });
+
+  test("removeWorkspaceDocumentSession drops the requested session", () => {
+    const first = createWorkspaceDocumentSession(createDocument("/tmp/a.pdf", 2));
+    const second = createWorkspaceDocumentSession(createDocument("/tmp/b.pdf", 3));
+
+    expect(
+      removeWorkspaceDocumentSession([first, second], "/tmp/a.pdf").map(
+        (session) => session.id,
+      ),
+    ).toEqual(["/tmp/b.pdf"]);
+  });
+
+  test("resolveNextActiveWorkspaceDocumentId prefers the next tab when closing the active one", () => {
+    const first = createWorkspaceDocumentSession(createDocument("/tmp/a.pdf", 2));
+    const second = createWorkspaceDocumentSession(createDocument("/tmp/b.pdf", 3));
+    const third = createWorkspaceDocumentSession(createDocument("/tmp/c.pdf", 4));
+
+    expect(
+      resolveNextActiveWorkspaceDocumentId(
+        [first, second, third],
+        "/tmp/b.pdf",
+        "/tmp/b.pdf",
+      ),
+    ).toBe("/tmp/c.pdf");
+    expect(
+      resolveNextActiveWorkspaceDocumentId(
+        [first, second, third],
+        "/tmp/c.pdf",
+        "/tmp/c.pdf",
+      ),
+    ).toBe("/tmp/b.pdf");
+    expect(
+      resolveNextActiveWorkspaceDocumentId(
+        [first, second, third],
+        "/tmp/b.pdf",
+        "/tmp/a.pdf",
+      ),
+    ).toBe("/tmp/a.pdf");
+  });
+
+  test("normalizeMergeSelectionDocumentIds keeps workspace order and falls back to all documents", () => {
+    const first = createWorkspaceDocumentSession(createDocument("/tmp/a.pdf", 2));
+    const second = createWorkspaceDocumentSession(createDocument("/tmp/b.pdf", 3));
+    const third = createWorkspaceDocumentSession(createDocument("/tmp/c.pdf", 4));
+
+    expect(
+      normalizeMergeSelectionDocumentIds(
+        [first, second, third],
+        ["/tmp/c.pdf", "/tmp/a.pdf", "/tmp/missing.pdf", "/tmp/a.pdf"],
+      ),
+    ).toEqual(["/tmp/a.pdf", "/tmp/c.pdf"]);
+    expect(normalizeMergeSelectionDocumentIds([first, second], [])).toEqual([
+      "/tmp/a.pdf",
+      "/tmp/b.pdf",
+    ]);
+    expect(
+      normalizeMergeSelectionDocumentIds([first, second], ["/tmp/missing.pdf"]),
+    ).toEqual(["/tmp/a.pdf", "/tmp/b.pdf"]);
+  });
+
+  test("hasWorkspaceDocumentSessionHistory returns true when undo or redo stacks exist", () => {
+    const session = createWorkspaceDocumentSession(createDocument("/tmp/a.pdf", 2));
+
+    expect(hasWorkspaceDocumentSessionHistory(session)).toBe(false);
+    expect(
+      hasWorkspaceDocumentSessionHistory({
+        ...session,
+        actionHistory: {
+          undoStack: [
+            {
+              id: "rotate",
+              label: "rotate",
+              beforeSnapshotPath: "/tmp/before.pdf",
+              afterSnapshotPath: "/tmp/after.pdf",
+            },
+          ],
+          redoStack: [],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      hasWorkspaceDocumentSessionHistory({
+        ...session,
+        actionHistory: {
+          undoStack: [],
+          redoStack: [
+            {
+              id: "delete",
+              label: "delete",
+              beforeSnapshotPath: "/tmp/before.pdf",
+              afterSnapshotPath: "/tmp/after.pdf",
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
   });
 });
