@@ -47,6 +47,11 @@ function formatSize(box: [number, number, number, number]) {
   return `${box[2] - box[0]} × ${box[3] - box[1]}`;
 }
 
+function getDocumentTabLabel(path: string) {
+  const parts = path.split(/[/\\]/);
+  return parts[parts.length - 1] ?? path;
+}
+
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -63,6 +68,8 @@ export function BackendWorkspace() {
   const { themePreference, resolvedTheme, setThemePreference } =
     useWorkspaceTheme();
   const pdfPath = usePdfDocumentStore((state) => state.draftPath);
+  const openDocuments = usePdfDocumentStore((state) => state.openDocuments);
+  const activeDocumentId = usePdfDocumentStore((state) => state.activeDocumentId);
   const lastError = usePdfDocumentStore((state) => state.lastError);
   const lastOperationMessage = usePdfDocumentStore(
     (state) => state.lastOperationMessage,
@@ -84,6 +91,7 @@ export function BackendWorkspace() {
   const actionHistory = usePdfDocumentStore((state) => state.actionHistory);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
   const inspectPdf = usePdfDocumentStore((state) => state.inspectPdf);
+  const switchToDocument = usePdfDocumentStore((state) => state.switchToDocument);
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
   const rotateSelectedPages = usePdfDocumentStore(
     (state) => state.rotateSelectedPages,
@@ -365,6 +373,26 @@ export function BackendWorkspace() {
             </div>
           ) : null}
 
+          {openDocuments.length > 0 ? (
+            <div className="workspace-tabs" role="tablist" aria-label="Open PDF documents">
+              {openDocuments.map((session) => (
+                <button
+                  aria-selected={activeDocumentId === session.id}
+                  className={`workspace-tab${activeDocumentId === session.id ? " active" : ""}`}
+                  disabled={isApplyingPageAction}
+                  key={session.id}
+                  onClick={() => switchToDocument(session.id)}
+                  role="tab"
+                  title={session.document.path}
+                  type="button"
+                >
+                  <span>{getDocumentTabLabel(session.document.path)}</span>
+                  <small>{session.document.pageCount} pages</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           {documentSummary ? (
             <div className="document-summary">
               <div className="summary-topline">
@@ -513,6 +541,7 @@ export function BackendWorkspace() {
               />
 
               <div className="workspace-statusbar">
+                <span>Open docs: {openDocuments.length}</span>
                 <span>Page count: {documentSummary.pageCount}</span>
                 <span>Selected: {selectedPageNumbers.length}</span>
                 <span>Undo: {actionHistory.undoStack.length}</span>

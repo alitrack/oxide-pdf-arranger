@@ -13,6 +13,13 @@ import {
 } from "../lib/actionHistory";
 import { buildHistorySnapshotPaths } from "../lib/historySnapshots";
 import {
+  createWorkspaceDocumentSession,
+  getWorkspaceDocumentSession,
+  projectActiveWorkspaceDocumentState,
+  upsertWorkspaceDocumentSession,
+  type PdfWorkspaceDocumentSession,
+} from "../lib/workspaceDocuments";
+import {
   applyRotationPreview,
   createInPlaceRotateRequest,
 } from "../lib/rotationPreview";
@@ -23,6 +30,7 @@ const MIN_GRID_ITEM_WIDTH = 140;
 const MAX_GRID_ITEM_WIDTH = 260;
 const RECENT_FILES_LIMIT = 6;
 const RECENT_FILES_STORAGE_KEY = "oxide-pdf-arranger.recent-files";
+const MAX_OPEN_DOCUMENTS = 10;
 
 function getStoredRecentFiles() {
   if (typeof window === "undefined") {
@@ -51,6 +59,8 @@ function persistRecentFiles(files: string[]) {
 
 interface PdfDocumentStoreState {
   draftPath: string;
+  openDocuments: PdfWorkspaceDocumentSession[];
+  activeDocumentId: string | null;
   activeDocument: PdfDocumentSummary | null;
   lastError: string | null;
   lastOperationMessage: string | null;
@@ -71,6 +81,7 @@ interface PdfDocumentStoreState {
   actionHistory: ActionHistoryState;
   setDraftPath(nextPath: string): void;
   inspectPdf(path?: string): Promise<void>;
+  switchToDocument(documentId: string): void;
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   reorderPages(pageNumbers: number[]): Promise<void>;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
@@ -179,8 +190,46 @@ function getOperationErrorMessage(error: unknown, fallback: string) {
   return error instanceof TauriInvokeError ? error.message : fallback;
 }
 
+function buildActiveWorkspaceState(
+  openDocuments: PdfWorkspaceDocumentSession[],
+  activeDocumentId: string | null,
+) {
+  return {
+    openDocuments,
+    activeDocumentId,
+    ...projectActiveWorkspaceDocumentState(openDocuments, activeDocumentId),
+  };
+}
+
+function updateActiveWorkspaceSessionState(
+  state: Pick<
+    PdfDocumentStoreState,
+    | "openDocuments"
+    | "activeDocumentId"
+  >,
+  updater: (session: PdfWorkspaceDocumentSession) => PdfWorkspaceDocumentSession,
+) {
+  const activeSession = getWorkspaceDocumentSession(
+    state.openDocuments,
+    state.activeDocumentId,
+  );
+
+  if (!activeSession) {
+    return buildActiveWorkspaceState(state.openDocuments, state.activeDocumentId);
+  }
+
+  const nextSession = updater(activeSession);
+  const nextOpenDocuments = state.openDocuments.map((session) =>
+    session.id === activeSession.id ? nextSession : session,
+  );
+
+  return buildActiveWorkspaceState(nextOpenDocuments, nextSession.id);
+}
+
 export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => ({
   draftPath: "",
+  openDocuments: [],
+  activeDocumentId: null,
   activeDocument: null,
   lastError: null,
   lastOperationMessage: null,
@@ -205,15 +254,37 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   },
 
   async inspectPdf(path) {
+    const { openDocuments, recentFiles } = get();
     const nextPath = (path ?? get().draftPath).trim();
     if (!nextPath) {
       set({
-        activeDocument: null,
         lastError: "请输入一个可访问的 PDF 绝对路径。",
         lastOperationMessage: null,
-        actionHistory: createEmptyActionHistory(),
-        selectedPageNumbers: [],
-        selectionAnchorPage: null,
+      });
+      return;
+    }
+
+    const nextRecentFiles = updateRecentFiles(recentFiles, nextPath, RECENT_FILES_LIMIT);
+    persistRecentFiles(nextRecentFiles);
+
+    const existingSession = getWorkspaceDocumentSession(openDocuments, nextPath);
+    if (existingSession) {
+      set({
+        draftPath: nextPath,
+        isInspecting: false,
+        lastError: null,
+        lastOperationMessage: null,
+        recentFiles: nextRecentFiles,
+        ...buildActiveWorkspaceState(openDocuments, existingSession.id),
+      });
+      return;
+    }
+
+    if (openDocuments.length >= MAX_OPEN_DOCUMENTS) {
+      set({
+        lastError: `最多同时打开 ${MAX_OPEN_DOCUMENTS} 个文档。请先切换到已有标签或关闭未使用文档。`,
+        lastOperationMessage: null,
+        recentFiles: nextRecentFiles,
       });
       return;
     }
@@ -223,41 +294,51 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       isInspecting: true,
       lastError: null,
       lastOperationMessage: null,
+      recentFiles: nextRecentFiles,
     });
 
     try {
       const activeDocument = await pdfBackend.inspectPdf(nextPath);
-      const recentFiles = updateRecentFiles(
-        get().recentFiles,
-        nextPath,
-        RECENT_FILES_LIMIT,
+      const nextSession = createWorkspaceDocumentSession(activeDocument);
+      const nextOpenDocuments = upsertWorkspaceDocumentSession(
+        get().openDocuments,
+        nextSession,
       );
-      persistRecentFiles(recentFiles);
 
       set({
-        activeDocument,
         isInspecting: false,
         lastError: null,
         lastOperationMessage: null,
-        actionHistory: createEmptyActionHistory(),
-        recentFiles,
-        ...getDefaultSelection(activeDocument),
+        recentFiles: nextRecentFiles,
+        ...buildActiveWorkspaceState(nextOpenDocuments, nextSession.id),
       });
     } catch (error) {
       set({
-        activeDocument: null,
         isInspecting: false,
         lastError: getInspectErrorMessage(error),
         lastOperationMessage: null,
-        actionHistory: createEmptyActionHistory(),
-        selectedPageNumbers: [],
-        selectionAnchorPage: null,
       });
     }
   },
 
+  switchToDocument(documentId) {
+    const { openDocuments } = get();
+    const session = getWorkspaceDocumentSession(openDocuments, documentId);
+    if (!session) {
+      return;
+    }
+
+    set({
+      draftPath: session.document.path,
+      lastError: null,
+      lastOperationMessage: null,
+      ...buildActiveWorkspaceState(openDocuments, documentId),
+    });
+  },
+
   selectPage(pageNumber, mode) {
-    const { activeDocument, selectedPageNumbers, selectionAnchorPage } = get();
+    const currentState = get();
+    const { activeDocument, selectedPageNumbers, selectionAnchorPage } = currentState;
     if (!activeDocument) {
       return;
     }
@@ -273,10 +354,13 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       );
 
     if (mode === "replace") {
-      set({
-        selectedPageNumbers: [pageNumber],
-        selectionAnchorPage: pageNumber,
-      });
+      set(
+        updateActiveWorkspaceSessionState(currentState, (session) => ({
+          ...session,
+          selectedPageNumbers: [pageNumber],
+          selectionAnchorPage: pageNumber,
+        })),
+      );
       return;
     }
 
@@ -285,10 +369,13 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
         ? selectedPageNumbers.filter((value) => value !== pageNumber)
         : [...selectedPageNumbers, pageNumber];
 
-      set({
-        selectedPageNumbers: sortByDocumentOrder(nextSelection),
-        selectionAnchorPage: pageNumber,
-      });
+      set(
+        updateActiveWorkspaceSessionState(currentState, (session) => ({
+          ...session,
+          selectedPageNumbers: sortByDocumentOrder(nextSelection),
+          selectionAnchorPage: pageNumber,
+        })),
+      );
       return;
     }
 
@@ -298,10 +385,13 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     const [start, end] =
       anchorIndex <= nextIndex ? [anchorIndex, nextIndex] : [nextIndex, anchorIndex];
 
-    set({
-      selectedPageNumbers: pageOrder.slice(start, end + 1),
-      selectionAnchorPage: anchor,
-    });
+    set(
+      updateActiveWorkspaceSessionState(currentState, (session) => ({
+        ...session,
+        selectedPageNumbers: pageOrder.slice(start, end + 1),
+        selectionAnchorPage: anchor,
+      })),
+    );
   },
 
   async reorderPages(pageNumbers) {
@@ -365,12 +455,15 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       }
 
       set({
-        activeDocument: refreshedDocument,
-        actionHistory: nextActionHistory,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: refreshedDocument,
+          actionHistory: nextActionHistory,
+          ...getBoundSelection(refreshedDocument, selectedPageNumbers),
+        })),
         isReordering: false,
         lastError: null,
         lastOperationMessage: nextOperationMessage,
-        ...getBoundSelection(refreshedDocument, selectedPageNumbers),
       });
     } catch (error) {
       set({
@@ -423,11 +516,14 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     }
 
     set({
-      activeDocument: optimisticDocument,
+      ...updateActiveWorkspaceSessionState(get(), (session) => ({
+        ...session,
+        document: optimisticDocument,
+        selectionAnchorPage,
+      })),
       isRotating: true,
       lastError: null,
       lastOperationMessage: null,
-      selectionAnchorPage,
     });
 
     try {
@@ -453,28 +549,34 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       }
 
       set({
-        activeDocument: refreshedDocument,
-        actionHistory: nextActionHistory,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: refreshedDocument,
+          actionHistory: nextActionHistory,
+          selectedPageNumbers,
+          selectionAnchorPage,
+        })),
         isRotating: false,
         lastError: null,
         lastOperationMessage: nextOperationMessage,
-        selectedPageNumbers,
-        selectionAnchorPage,
       });
     } catch (error) {
       set({
-        activeDocument: previousDocument,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: previousDocument,
+          selectedPageNumbers,
+          selectionAnchorPage,
+        })),
         isRotating: false,
         lastError: getOperationErrorMessage(error, "旋转页面失败。"),
         lastOperationMessage: null,
-        selectedPageNumbers,
-        selectionAnchorPage,
       });
     }
   },
 
   async saveDocumentAs(outputPath) {
-    const { activeDocument, selectedPageNumbers, recentFiles } = get();
+    const { activeDocument, openDocuments, selectedPageNumbers, recentFiles } = get();
     const nextOutputPath = outputPath.trim();
 
     if (!activeDocument) {
@@ -488,6 +590,19 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
     if (!nextOutputPath) {
       set({
         lastError: "请选择有效的另存为目标路径。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (
+      openDocuments.some(
+        (session) =>
+          session.id === nextOutputPath && session.id !== activeDocument.path,
+      )
+    ) {
+      set({
+        lastError: "该 PDF 已在工作区中打开，请直接切换对应标签。",
         lastOperationMessage: null,
       });
       return;
@@ -513,14 +628,18 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       persistRecentFiles(nextRecentFiles);
 
       set({
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          id: nextOutputPath,
+          document: refreshedDocument,
+          actionHistory: createEmptyActionHistory(),
+          ...getBoundSelection(refreshedDocument, selectedPageNumbers),
+        })),
         draftPath: nextOutputPath,
-        activeDocument: refreshedDocument,
         isSaving: false,
         lastError: null,
         lastOperationMessage: `已另存为 ${nextOutputPath}。`,
-        actionHistory: createEmptyActionHistory(),
         recentFiles: nextRecentFiles,
-        ...getBoundSelection(refreshedDocument, selectedPageNumbers),
       });
     } catch (error) {
       set({
@@ -613,12 +732,15 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       );
 
       set({
-        activeDocument: restoredDocument,
-        actionHistory: transition.history,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: restoredDocument,
+          actionHistory: transition.history,
+          ...getDefaultSelection(restoredDocument),
+        })),
         isUndoing: false,
         lastError: null,
         lastOperationMessage: `已撤销：${transition.entry.label}。`,
-        ...getDefaultSelection(restoredDocument),
       });
     } catch (error) {
       set({
@@ -657,12 +779,15 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       );
 
       set({
-        activeDocument: restoredDocument,
-        actionHistory: transition.history,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: restoredDocument,
+          actionHistory: transition.history,
+          ...getDefaultSelection(restoredDocument),
+        })),
         isRedoing: false,
         lastError: null,
         lastOperationMessage: `已重做：${transition.entry.label}。`,
-        ...getDefaultSelection(restoredDocument),
       });
     } catch (error) {
       set({
@@ -744,13 +869,16 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       }
 
       set({
-        activeDocument: refreshedDocument,
-        actionHistory: nextActionHistory,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: refreshedDocument,
+          actionHistory: nextActionHistory,
+          selectedPageNumbers: nextSelectedPages,
+          selectionAnchorPage: nextSelectedPages[0] ?? null,
+        })),
         isDeleting: false,
         lastError: null,
         lastOperationMessage: nextOperationMessage,
-        selectedPageNumbers: nextSelectedPages,
-        selectionAnchorPage: nextSelectedPages[0] ?? null,
       });
     } catch (error) {
       set({
@@ -824,14 +952,17 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       }
 
       set({
-        activeDocument: refreshedDocument,
-        actionHistory: nextActionHistory,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: refreshedDocument,
+          actionHistory: nextActionHistory,
+          selectedPageNumbers: duplicatedPageNumbers,
+          selectionAnchorPage:
+            duplicatedPageNumbers[duplicatedPageNumbers.length - 1] ?? null,
+        })),
         isDuplicating: false,
         lastError: null,
         lastOperationMessage: nextOperationMessage,
-        selectedPageNumbers: duplicatedPageNumbers,
-        selectionAnchorPage:
-          duplicatedPageNumbers[duplicatedPageNumbers.length - 1] ?? null,
       });
     } catch (error) {
       set({
@@ -904,13 +1035,16 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       }
 
       set({
-        activeDocument: refreshedDocument,
-        actionHistory: nextActionHistory,
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: refreshedDocument,
+          actionHistory: nextActionHistory,
+          selectedPageNumbers: [insertedPageNumber],
+          selectionAnchorPage: insertedPageNumber,
+        })),
         isInsertingBlank: false,
         lastError: null,
         lastOperationMessage: nextOperationMessage,
-        selectedPageNumbers: [insertedPageNumber],
-        selectionAnchorPage: insertedPageNumber,
       });
     } catch (error) {
       set({

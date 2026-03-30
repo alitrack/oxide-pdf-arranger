@@ -450,6 +450,45 @@ button {
   cursor: not-allowed;
 }
 
+.workspace-tabs {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.workspace-tab {
+  min-width: 160px;
+  border: 1px solid var(--preview-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-strong) 86%, transparent);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  color: var(--ink-strong);
+}
+
+.workspace-tab span {
+  font-weight: 700;
+}
+
+.workspace-tab small {
+  color: var(--ink-soft);
+}
+
+.workspace-tab.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--page-card-selected-bg) 88%, transparent);
+}
+
+.workspace-tab:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .document-summary {
   margin-top: 20px;
   display: grid;
