@@ -1,4 +1,5 @@
 import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
+import { PageGrid } from "../../documents/components/PageGrid";
 
 const operationCards = [
   {
@@ -126,22 +127,18 @@ export function BackendWorkspace() {
                 </div>
               </div>
 
-              <div className="page-table">
-                <div className="page-table-header">
-                  <span>Page</span>
-                  <span>Size</span>
-                  <span>Rotation</span>
-                  <span>MediaBox</span>
+              <div className="summary-metadata">
+                <div className="summary-field">
+                  <span>First page size</span>
+                  <strong>{formatSize(documentSummary.pages[0].mediaBox)}</strong>
                 </div>
-                {documentSummary.pages.map((page) => (
-                  <div className="page-row" key={page.pageNumber}>
-                    <span>#{page.pageNumber}</span>
-                    <span>{formatSize(page.mediaBox)}</span>
-                    <span>{page.rotation}°</span>
-                    <span>{formatBox(page.mediaBox)}</span>
-                  </div>
-                ))}
+                <div className="summary-field">
+                  <span>First page box</span>
+                  <strong>{formatBox(documentSummary.pages[0].mediaBox)}</strong>
+                </div>
               </div>
+
+              <PageGrid isLoading={isInspecting} pages={documentSummary.pages} />
             </div>
           ) : (
             <div className="empty-state">
@@ -151,6 +148,8 @@ export function BackendWorkspace() {
               </small>
             </div>
           )}
+
+          {!documentSummary && isInspecting ? <PageGrid isLoading={isInspecting} pages={[]} /> : null}
         </section>
       </main>
     </div>
