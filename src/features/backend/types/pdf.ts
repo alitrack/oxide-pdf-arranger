@@ -36,6 +36,12 @@ export interface DeletePagesRequest {
   outputPath: string;
 }
 
+export interface DuplicatePagesRequest {
+  inputPath: string;
+  pageNumbers: number[];
+  outputPath: string;
+}
+
 export interface PdfOperationResult {
   outputPath: string;
   pageCount: number;

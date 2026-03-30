@@ -1,8 +1,9 @@
 use pdf_arranger_core::{
-    delete_pages as delete_pages_impl, inspect_pdf as inspect_pdf_impl,
-    merge_pdfs as merge_pdfs_impl, rotate_pdf as rotate_pdf_impl,
-    split_pdf as split_pdf_impl, AppError, DeletePagesRequest, MergePdfRequest,
-    PdfDocumentSummary, PdfOperationResult, RotatePdfRequest, SplitPdfRequest,
+    delete_pages as delete_pages_impl, duplicate_pages as duplicate_pages_impl,
+    inspect_pdf as inspect_pdf_impl, merge_pdfs as merge_pdfs_impl,
+    rotate_pdf as rotate_pdf_impl, split_pdf as split_pdf_impl, AppError,
+    DeletePagesRequest, DuplicatePagesRequest, MergePdfRequest, PdfDocumentSummary,
+    PdfOperationResult, RotatePdfRequest, SplitPdfRequest,
 };
 use std::sync::Once;
 use tracing::info;
@@ -44,6 +45,11 @@ fn delete_pages(request: DeletePagesRequest) -> Result<PdfOperationResult, AppEr
     delete_pages_impl(&request)
 }
 
+#[tauri::command]
+fn duplicate_pages(request: DuplicatePagesRequest) -> Result<PdfOperationResult, AppError> {
+    duplicate_pages_impl(&request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
@@ -56,7 +62,8 @@ pub fn run() {
             merge_pdfs,
             split_pdf,
             rotate_pdf,
-            delete_pages
+            delete_pages,
+            duplicate_pages
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

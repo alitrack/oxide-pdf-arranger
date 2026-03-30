@@ -20,6 +20,7 @@ interface PdfDocumentStoreState {
   isInspecting: boolean;
   isRotating: boolean;
   isDeleting: boolean;
+  isDuplicating: boolean;
   selectedPageNumbers: number[];
   selectionAnchorPage: number | null;
   gridItemWidth: number;
@@ -28,6 +29,7 @@ interface PdfDocumentStoreState {
   selectPage(pageNumber: number, mode: "replace" | "toggle" | "range"): void;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
   deleteSelectedPages(): Promise<void>;
+  duplicateSelectedPages(): Promise<void>;
   zoomInGrid(): void;
   zoomOutGrid(): void;
   resetGridZoom(): void;
@@ -45,6 +47,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isInspecting: false,
   isRotating: false,
   isDeleting: false,
+  isDuplicating: false,
   selectedPageNumbers: [],
   selectionAnchorPage: null,
   gridItemWidth: DEFAULT_GRID_ITEM_WIDTH,
@@ -263,6 +266,59 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       set({
         isDeleting: false,
         lastError: error instanceof TauriInvokeError ? error.message : "删除页面失败。",
+        lastOperationMessage: null,
+      });
+    }
+  },
+
+  async duplicateSelectedPages() {
+    const { activeDocument, selectedPageNumbers } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (selectedPageNumbers.length === 0) {
+      set({
+        lastError: "请先选择要复制的页面。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isDuplicating: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.duplicatePages({
+        inputPath: activeDocument.path,
+        pageNumbers: selectedPageNumbers,
+        outputPath: activeDocument.path,
+      });
+      const refreshedDocument = await pdfBackend.inspectPdf(activeDocument.path);
+      const duplicatedPageNumbers = selectedPageNumbers
+        .map((pageNumber, index) => pageNumber + index + 1)
+        .filter((pageNumber) => pageNumber <= refreshedDocument.pageCount);
+
+      set({
+        activeDocument: refreshedDocument,
+        isDuplicating: false,
+        lastError: null,
+        lastOperationMessage: `已复制 ${selectedPageNumbers.length} 页。`,
+        selectedPageNumbers: duplicatedPageNumbers,
+        selectionAnchorPage:
+          duplicatedPageNumbers[duplicatedPageNumbers.length - 1] ?? null,
+      });
+    } catch (error) {
+      set({
+        isDuplicating: false,
+        lastError: error instanceof TauriInvokeError ? error.message : "复制页面失败。",
         lastOperationMessage: null,
       });
     }

@@ -112,6 +112,14 @@ pub struct DeletePagesRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct DuplicatePagesRequest {
+    pub input_path: String,
+    pub page_numbers: Vec<u32>,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfOperationResult {
     pub output_path: String,
     pub page_count: u32,
@@ -283,6 +291,55 @@ pub fn delete_pages(request: &DeletePagesRequest) -> AppResult<PdfOperationResul
     })
 }
 
+pub fn duplicate_pages(request: &DuplicatePagesRequest) -> AppResult<PdfOperationResult> {
+    validate_path(&request.input_path, "input_path")?;
+    validate_path(&request.output_path, "output_path")?;
+    validate_page_numbers_not_empty(&request.page_numbers)?;
+    ensure_output_parent(&request.output_path)?;
+
+    let input_doc = PdfDocument::load(&request.input_path)?;
+    let page_count = input_doc.page_count();
+    validate_page_numbers_exist(page_count, &request.page_numbers)?;
+
+    let duplicated_pages: std::collections::HashSet<_> =
+        request.page_numbers.iter().copied().collect();
+    let mut sources = Vec::new();
+    let mut occurrence_index = 0usize;
+
+    for page_number in 1..=page_count as u32 {
+        occurrence_index += 1;
+        let handle = handle_for_index(occurrence_index);
+        sources.push((
+            InputSource::new(&request.input_path).with_handle(handle.clone()),
+            vec![single_page_range(&handle, page_number)],
+        ));
+
+        if duplicated_pages.contains(&page_number) {
+            occurrence_index += 1;
+            let duplicate_handle = handle_for_index(occurrence_index);
+            sources.push((
+                InputSource::new(&request.input_path).with_handle(duplicate_handle.clone()),
+                vec![single_page_range(&duplicate_handle, page_number)],
+            ));
+        }
+    }
+
+    info!(
+        input_path = request.input_path,
+        output_path = request.output_path,
+        duplicated_pages = ?request.page_numbers,
+        "Duplicating PDF pages"
+    );
+    let mut merged = MergeEngine::merge(&sources)?;
+    let output_page_count = merged.page_count() as u32;
+    merged.save(&request.output_path)?;
+
+    Ok(PdfOperationResult {
+        output_path: request.output_path.clone(),
+        page_count: output_page_count,
+    })
+}
+
 fn validate_path(value: &str, field_name: &str) -> AppResult<()> {
     if value.trim().is_empty() {
         return Err(AppError::InvalidRequest(format!(
@@ -352,6 +409,16 @@ fn full_document_range(handle: &str) -> PageRange {
         handle: handle.to_string(),
         start: PageNum::Absolute(1),
         end: PageNum::End,
+        qualifier: Qualifier::All,
+        rotation: Rotation::North,
+    }
+}
+
+fn single_page_range(handle: &str, page_number: u32) -> PageRange {
+    PageRange {
+        handle: handle.to_string(),
+        start: PageNum::Absolute(page_number),
+        end: PageNum::Absolute(page_number),
         qualifier: Qualifier::All,
         rotation: Rotation::North,
     }
@@ -609,6 +676,38 @@ mod tests {
         doc.save(path).expect("failed to save text fixture");
     }
 
+    fn extract_page_markers(path: &std::path::Path) -> Vec<String> {
+        let doc = Document::load(path).expect("failed to load duplicated pdf");
+        doc.get_pages()
+            .values()
+            .map(|page_id| {
+                let content = doc
+                    .get_page_content(*page_id)
+                    .expect("missing page content for duplicated page");
+                let decoded = Content::decode(&content).expect("failed to decode duplicated content");
+                decoded
+                    .operations
+                    .iter()
+                    .find_map(|operation| {
+                        if operation.operator == "Tj" {
+                            Some(
+                                String::from_utf8(
+                                    operation.operands[0]
+                                        .as_str()
+                                        .expect("Tj operand should be a string")
+                                        .to_vec(),
+                                )
+                                .expect("page marker should be utf-8"),
+                            )
+                        } else {
+                            None
+                        }
+                    })
+                    .expect("missing page marker text")
+            })
+            .collect()
+    }
+
     #[test]
     fn inspect_pdf_reports_page_boxes_and_rotation() {
         let dir = tempdir().expect("tempdir");
@@ -777,5 +876,26 @@ mod tests {
             matches!(error, AppError::InvalidRequest(_)),
             "expected validation error, got {error:?}"
         );
+    }
+
+    #[test]
+    fn duplicate_pages_inserts_selected_pages_after_their_originals() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("duplicate-input.pdf");
+        let output = dir.path().join("duplicate-output.pdf");
+        create_text_fixture_with_pages(
+            &input,
+            &[("A", 612, 792, 0), ("B", 612, 792, 0), ("C", 612, 792, 0)],
+        );
+
+        let result = duplicate_pages(&DuplicatePagesRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            page_numbers: vec![2],
+            output_path: output.to_string_lossy().into_owned(),
+        })
+        .expect("duplicate pages");
+
+        assert_eq!(result.page_count, 4);
+        assert_eq!(extract_page_markers(&output), vec!["A", "B", "B", "C"]);
     }
 }

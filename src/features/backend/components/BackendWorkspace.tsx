@@ -46,6 +46,7 @@ export function BackendWorkspace() {
   const isInspecting = usePdfDocumentStore((state) => state.isInspecting);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
   const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
+  const isDuplicating = usePdfDocumentStore((state) => state.isDuplicating);
   const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
   const gridItemWidth = usePdfDocumentStore((state) => state.gridItemWidth);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
@@ -57,10 +58,13 @@ export function BackendWorkspace() {
   const deleteSelectedPages = usePdfDocumentStore(
     (state) => state.deleteSelectedPages,
   );
+  const duplicateSelectedPages = usePdfDocumentStore(
+    (state) => state.duplicateSelectedPages,
+  );
   const zoomInGrid = usePdfDocumentStore((state) => state.zoomInGrid);
   const zoomOutGrid = usePdfDocumentStore((state) => state.zoomOutGrid);
   const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
-  const isApplyingPageAction = isRotating || isDeleting;
+  const isApplyingPageAction = isRotating || isDeleting || isDuplicating;
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -168,6 +172,14 @@ export function BackendWorkspace() {
                       {isRotating ? "Applying..." : `${degrees}°`}
                     </button>
                   ))}
+                  <button
+                    className="secondary-button"
+                    disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                    onClick={() => duplicateSelectedPages()}
+                    type="button"
+                  >
+                    {isDuplicating ? "Duplicating..." : "Duplicate"}
+                  </button>
                   <button
                     className="secondary-button danger"
                     disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
