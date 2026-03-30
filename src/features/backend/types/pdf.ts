@@ -42,6 +42,12 @@ export interface DuplicatePagesRequest {
   outputPath: string;
 }
 
+export interface InsertBlankPageRequest {
+  inputPath: string;
+  afterPageNumber: number;
+  outputPath: string;
+}
+
 export interface PdfOperationResult {
   outputPath: string;
   pageCount: number;

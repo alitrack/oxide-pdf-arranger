@@ -2,6 +2,7 @@ import { invokeCommand } from "../../../shared/lib/tauri";
 import type {
   DeletePagesRequest,
   DuplicatePagesRequest,
+  InsertBlankPageRequest,
   MergePdfRequest,
   PdfDocumentSummary,
   PdfOperationResult,
@@ -32,5 +33,9 @@ export const pdfBackend = {
 
   duplicatePages(request: DuplicatePagesRequest) {
     return invokeCommand<PdfOperationResult>("duplicate_pages", { request });
+  },
+
+  insertBlankPage(request: InsertBlankPageRequest) {
+    return invokeCommand<PdfOperationResult>("insert_blank_page", { request });
   },
 };

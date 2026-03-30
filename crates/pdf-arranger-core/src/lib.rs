@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use image::{imageops, ImageBuffer, Rgba};
-use lopdf::{Document, Object, ObjectId};
+use lopdf::{dictionary, Document, Object, ObjectId, Stream};
 use pdf_core::{InputSource, PdfDocument, PdfError};
 use pdf_merge::MergeEngine;
 use pdf_page_range::{PageNum, PageRange, Qualifier, Rotation};
@@ -115,6 +115,14 @@ pub struct DeletePagesRequest {
 pub struct DuplicatePagesRequest {
     pub input_path: String,
     pub page_numbers: Vec<u32>,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertBlankPageRequest {
+    pub input_path: String,
+    pub after_page_number: u32,
     pub output_path: String,
 }
 
@@ -340,6 +348,60 @@ pub fn duplicate_pages(request: &DuplicatePagesRequest) -> AppResult<PdfOperatio
     })
 }
 
+pub fn insert_blank_page(request: &InsertBlankPageRequest) -> AppResult<PdfOperationResult> {
+    validate_path(&request.input_path, "input_path")?;
+    validate_path(&request.output_path, "output_path")?;
+    ensure_output_parent(&request.output_path)?;
+
+    let input_doc = PdfDocument::load(&request.input_path)?;
+    let page_count = input_doc.page_count();
+    validate_page_numbers_exist(page_count, &[request.after_page_number])?;
+
+    let blank_page_box = input_doc
+        .get_page_id(request.after_page_number)
+        .and_then(|page_id| find_page_box(&input_doc.inner, page_id, b"MediaBox"))
+        .unwrap_or(DEFAULT_MEDIA_BOX);
+
+    let blank_page_file = tempfile::NamedTempFile::new()?;
+    write_blank_page_pdf(blank_page_file.path(), blank_page_box)?;
+
+    let mut sources = Vec::new();
+    let mut occurrence_index = 0usize;
+
+    for page_number in 1..=page_count as u32 {
+        occurrence_index += 1;
+        let handle = handle_for_index(occurrence_index);
+        sources.push((
+            InputSource::new(&request.input_path).with_handle(handle.clone()),
+            vec![single_page_range(&handle, page_number)],
+        ));
+
+        if page_number == request.after_page_number {
+            occurrence_index += 1;
+            let blank_handle = handle_for_index(occurrence_index);
+            sources.push((
+                InputSource::new(blank_page_file.path()).with_handle(blank_handle.clone()),
+                vec![single_page_range(&blank_handle, 1)],
+            ));
+        }
+    }
+
+    info!(
+        input_path = request.input_path,
+        output_path = request.output_path,
+        after_page_number = request.after_page_number,
+        "Inserting blank PDF page"
+    );
+    let mut merged = MergeEngine::merge(&sources)?;
+    let output_page_count = merged.page_count() as u32;
+    merged.save(&request.output_path)?;
+
+    Ok(PdfOperationResult {
+        output_path: request.output_path.clone(),
+        page_count: output_page_count,
+    })
+}
+
 fn validate_path(value: &str, field_name: &str) -> AppResult<()> {
     if value.trim().is_empty() {
         return Err(AppError::InvalidRequest(format!(
@@ -422,6 +484,47 @@ fn single_page_range(handle: &str, page_number: u32) -> PageRange {
         qualifier: Qualifier::All,
         rotation: Rotation::North,
     }
+}
+
+fn write_blank_page_pdf(path: &Path, media_box: [f32; 4]) -> AppResult<()> {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let content_id = doc.add_object(Stream::new(dictionary! {}, Vec::new()));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+        "MediaBox" => vec![
+            media_box[0].into(),
+            media_box[1].into(),
+            media_box[2].into(),
+            media_box[3].into(),
+        ],
+    });
+
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+            "MediaBox" => vec![
+                media_box[0].into(),
+                media_box[1].into(),
+                media_box[2].into(),
+                media_box[3].into(),
+            ],
+        }),
+    );
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    doc.compress();
+    doc.save(path)?;
+    Ok(())
 }
 
 fn find_page_box(doc: &Document, page_id: ObjectId, key: &[u8]) -> Option<[f32; 4]> {
@@ -897,5 +1000,28 @@ mod tests {
 
         assert_eq!(result.page_count, 4);
         assert_eq!(extract_page_markers(&output), vec!["A", "B", "B", "C"]);
+    }
+
+    #[test]
+    fn insert_blank_page_adds_a_new_page_after_the_selected_page() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("insert-input.pdf");
+        let output = dir.path().join("insert-output.pdf");
+        create_text_fixture_with_pages(
+            &input,
+            &[("A", 612, 792, 0), ("B", 400, 600, 0), ("C", 612, 792, 0)],
+        );
+
+        let result = insert_blank_page(&InsertBlankPageRequest {
+            input_path: input.to_string_lossy().into_owned(),
+            after_page_number: 2,
+            output_path: output.to_string_lossy().into_owned(),
+        })
+        .expect("insert blank page");
+
+        assert_eq!(result.page_count, 4);
+        let summary = inspect_pdf(output.to_str().expect("utf-8 path")).expect("inspect pdf");
+        assert_eq!(summary.page_count, 4);
+        assert_eq!(summary.pages[2].media_box, [0.0, 0.0, 400.0, 600.0]);
     }
 }

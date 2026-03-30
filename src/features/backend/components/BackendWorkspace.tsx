@@ -47,6 +47,7 @@ export function BackendWorkspace() {
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
   const isDeleting = usePdfDocumentStore((state) => state.isDeleting);
   const isDuplicating = usePdfDocumentStore((state) => state.isDuplicating);
+  const isInsertingBlank = usePdfDocumentStore((state) => state.isInsertingBlank);
   const selectedPageNumbers = usePdfDocumentStore((state) => state.selectedPageNumbers);
   const gridItemWidth = usePdfDocumentStore((state) => state.gridItemWidth);
   const setDraftPath = usePdfDocumentStore((state) => state.setDraftPath);
@@ -61,10 +62,14 @@ export function BackendWorkspace() {
   const duplicateSelectedPages = usePdfDocumentStore(
     (state) => state.duplicateSelectedPages,
   );
+  const insertBlankPageAfterSelection = usePdfDocumentStore(
+    (state) => state.insertBlankPageAfterSelection,
+  );
   const zoomInGrid = usePdfDocumentStore((state) => state.zoomInGrid);
   const zoomOutGrid = usePdfDocumentStore((state) => state.zoomOutGrid);
   const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
-  const isApplyingPageAction = isRotating || isDeleting || isDuplicating;
+  const isApplyingPageAction =
+    isRotating || isDeleting || isDuplicating || isInsertingBlank;
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,6 +177,14 @@ export function BackendWorkspace() {
                       {isRotating ? "Applying..." : `${degrees}°`}
                     </button>
                   ))}
+                  <button
+                    className="secondary-button"
+                    disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                    onClick={() => insertBlankPageAfterSelection()}
+                    type="button"
+                  >
+                    {isInsertingBlank ? "Inserting..." : "Insert blank"}
+                  </button>
                   <button
                     className="secondary-button"
                     disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}

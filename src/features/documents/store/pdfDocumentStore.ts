@@ -21,6 +21,7 @@ interface PdfDocumentStoreState {
   isRotating: boolean;
   isDeleting: boolean;
   isDuplicating: boolean;
+  isInsertingBlank: boolean;
   selectedPageNumbers: number[];
   selectionAnchorPage: number | null;
   gridItemWidth: number;
@@ -30,6 +31,7 @@ interface PdfDocumentStoreState {
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
   deleteSelectedPages(): Promise<void>;
   duplicateSelectedPages(): Promise<void>;
+  insertBlankPageAfterSelection(): Promise<void>;
   zoomInGrid(): void;
   zoomOutGrid(): void;
   resetGridZoom(): void;
@@ -48,6 +50,7 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isRotating: false,
   isDeleting: false,
   isDuplicating: false,
+  isInsertingBlank: false,
   selectedPageNumbers: [],
   selectionAnchorPage: null,
   gridItemWidth: DEFAULT_GRID_ITEM_WIDTH,
@@ -319,6 +322,59 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       set({
         isDuplicating: false,
         lastError: error instanceof TauriInvokeError ? error.message : "复制页面失败。",
+        lastOperationMessage: null,
+      });
+    }
+  },
+
+  async insertBlankPageAfterSelection() {
+    const { activeDocument, selectedPageNumbers } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    if (selectedPageNumbers.length === 0) {
+      set({
+        lastError: "请先选择插入位置对应的页面。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const afterPageNumber = selectedPageNumbers[selectedPageNumbers.length - 1];
+
+    set({
+      isInsertingBlank: true,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.insertBlankPage({
+        inputPath: activeDocument.path,
+        afterPageNumber,
+        outputPath: activeDocument.path,
+      });
+      const refreshedDocument = await pdfBackend.inspectPdf(activeDocument.path);
+      const insertedPageNumber = Math.min(afterPageNumber + 1, refreshedDocument.pageCount);
+
+      set({
+        activeDocument: refreshedDocument,
+        isInsertingBlank: false,
+        lastError: null,
+        lastOperationMessage: `已在第 ${afterPageNumber} 页后插入空白页。`,
+        selectedPageNumbers: [insertedPageNumber],
+        selectionAnchorPage: insertedPageNumber,
+      });
+    } catch (error) {
+      set({
+        isInsertingBlank: false,
+        lastError:
+          error instanceof TauriInvokeError ? error.message : "插入空白页失败。",
         lastOperationMessage: null,
       });
     }

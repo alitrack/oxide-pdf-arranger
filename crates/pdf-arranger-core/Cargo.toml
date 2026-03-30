@@ -16,8 +16,6 @@ pdf-page-range = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "
 pdf-rotate = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
 pdf-split = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
 serde = { version = "1", features = ["derive"] }
+tempfile = "3"
 thiserror = "1.0"
 tracing = "0.1"
-
-[dev-dependencies]
-tempfile = "3"
