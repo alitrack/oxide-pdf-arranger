@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { usePdfDocumentStore } from "../../documents/store/pdfDocumentStore";
 import { PageGrid } from "../../documents/components/PageGrid";
 
@@ -36,6 +37,18 @@ function formatSize(box: [number, number, number, number]) {
   return `${box[2] - box[0]} × ${box[3] - box[1]}`;
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable
+  );
+}
+
 export function BackendWorkspace() {
   const pdfPath = usePdfDocumentStore((state) => state.draftPath);
   const lastError = usePdfDocumentStore((state) => state.lastError);
@@ -70,6 +83,47 @@ export function BackendWorkspace() {
   const resetGridZoom = usePdfDocumentStore((state) => state.resetGridZoom);
   const isApplyingPageAction =
     isRotating || isDeleting || isDuplicating || isInsertingBlank;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!documentSummary || isApplyingPageAction || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        void deleteSelectedPages();
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        void duplicateSelectedPages();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "r" && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        void rotateSelectedPages(event.shiftKey ? 270 : 90);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "b" && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        void insertBlankPageAfterSelection();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    deleteSelectedPages,
+    documentSummary,
+    duplicateSelectedPages,
+    insertBlankPageAfterSelection,
+    isApplyingPageAction,
+    rotateSelectedPages,
+  ]);
 
   async function handleInspect(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -249,6 +303,28 @@ export function BackendWorkspace() {
                 <span>Selected: {selectedPageNumbers.length}</span>
                 <span>Grid width: {gridItemWidth}px</span>
                 <span className="statusbar-path">{documentSummary.path}</span>
+              </div>
+
+              <div className="shortcut-reference">
+                <span className="shortcut-reference-title">Keyboard shortcuts</span>
+                <div className="shortcut-reference-grid">
+                  <span>
+                    <kbd>R</kbd> rotate 90°
+                  </span>
+                  <span>
+                    <kbd>Shift</kbd> + <kbd>R</kbd> rotate 270°
+                  </span>
+                  <span>
+                    <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicate
+                  </span>
+                  <span>
+                    <kbd>B</kbd> insert blank after selection
+                  </span>
+                  <span>
+                    <kbd>Delete</kbd> delete selected pages
+                  </span>
+                  <span>Right click any page for the same action menu</span>
+                </div>
               </div>
             </div>
           ) : (
