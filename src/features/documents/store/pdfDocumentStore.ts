@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { pdfBackend } from "../../backend/api/pdfBackend";
-import type { CropMargins, PdfDocumentSummary } from "../../backend/types/pdf";
+import type {
+  CropMargins,
+  ImageImportPosition,
+  PdfDocumentSummary,
+} from "../../backend/types/pdf";
 import { TauriInvokeError } from "../../../shared/lib/tauri";
 import { updateRecentFiles } from "../../files/lib/recentFiles";
 import {
@@ -87,6 +91,8 @@ interface PdfDocumentStoreState {
   isSaving: boolean;
   isExporting: boolean;
   isMerging: boolean;
+  isImportingImages: boolean;
+  imageImportProgressTotal: number;
   hasAttemptedWorkspaceRestore: boolean;
   isUndoing: boolean;
   isRedoing: boolean;
@@ -119,6 +125,11 @@ interface PdfDocumentStoreState {
   reorderPages(pageNumbers: number[]): Promise<void>;
   rotateSelectedPages(rotationDegrees: 90 | 180 | 270): Promise<void>;
   cropSelectedPages(margins: CropMargins): Promise<void>;
+  importImages(
+    imagePaths: string[],
+    position: ImageImportPosition,
+    afterPageNumber: number | null,
+  ): Promise<void>;
   saveDocumentAs(outputPath: string): Promise<void>;
   exportDocumentCopy(outputPath: string): Promise<void>;
   undoLastAction(): Promise<void>;
@@ -335,6 +346,8 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
   isSaving: false,
   isExporting: false,
   isMerging: false,
+  isImportingImages: false,
+  imageImportProgressTotal: 0,
   hasAttemptedWorkspaceRestore: false,
   isUndoing: false,
   isRedoing: false,
@@ -1234,6 +1247,114 @@ export const usePdfDocumentStore = create<PdfDocumentStoreState>((set, get) => (
       set({
         isCropping: false,
         lastError: getOperationErrorMessage(error, "裁剪页面失败。"),
+        lastOperationMessage: null,
+      });
+    }
+  },
+
+  async importImages(imagePaths, position, afterPageNumber) {
+    const { activeDocument, actionHistory, selectedPageNumbers } = get();
+    if (!activeDocument) {
+      set({
+        lastError: "请先加载一个 PDF 文档。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const nextImagePaths = imagePaths
+      .map((path) => path.trim())
+      .filter((path, index, paths) => path.length > 0 && paths.indexOf(path) === index);
+
+    if (nextImagePaths.length === 0) {
+      set({
+        lastError: "请选择至少一个图片文件。",
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    const resolvedAfterPageNumber =
+      position === "after-selection"
+        ? afterPageNumber ??
+          (selectedPageNumbers.length > 0 ? Math.max(...selectedPageNumbers) : null)
+        : null;
+    const resolvedPosition =
+      position === "after-selection" && resolvedAfterPageNumber === null
+        ? "append"
+        : position;
+    let pendingHistoryEntry: ActionHistoryEntry;
+
+    try {
+      pendingHistoryEntry = await createPendingHistoryEntry(
+        activeDocument.path,
+        `导入 ${nextImagePaths.length} 张图片`,
+      );
+    } catch (error) {
+      set({
+        lastError: getOperationErrorMessage(error, "记录撤销快照失败。"),
+        lastOperationMessage: null,
+      });
+      return;
+    }
+
+    set({
+      isImportingImages: true,
+      imageImportProgressTotal: nextImagePaths.length,
+      lastError: null,
+      lastOperationMessage: null,
+    });
+
+    try {
+      await pdfBackend.importImages({
+        targetPath: activeDocument.path,
+        outputPath: activeDocument.path,
+        imagePaths: nextImagePaths,
+        position: resolvedPosition,
+        afterPageNumber: resolvedAfterPageNumber,
+      });
+      const refreshedDocument = await pdfBackend.inspectPdf(activeDocument.path);
+      const insertionStartPageNumber =
+        resolvedPosition === "prepend"
+          ? 1
+          : resolvedPosition === "append"
+            ? activeDocument.pageCount + 1
+            : (resolvedAfterPageNumber ?? 0) + 1;
+      const insertedPageNumbers = Array.from(
+        { length: nextImagePaths.length },
+        (_, index) => insertionStartPageNumber + index,
+      );
+      let nextActionHistory = actionHistory;
+      let nextOperationMessage = `已导入 ${nextImagePaths.length} 张图片。`;
+
+      try {
+        nextActionHistory = await finalizeHistoryEntry(
+          actionHistory,
+          activeDocument.path,
+          pendingHistoryEntry,
+        );
+      } catch {
+        nextOperationMessage += " 但未能记录撤销历史。";
+      }
+
+      set({
+        ...updateActiveWorkspaceSessionState(get(), (session) => ({
+          ...session,
+          document: refreshedDocument,
+          actionHistory: nextActionHistory,
+          selectedPageNumbers: insertedPageNumbers,
+          selectionAnchorPage: insertedPageNumbers[insertedPageNumbers.length - 1] ?? null,
+        })),
+        isImportingImages: false,
+        imageImportProgressTotal: 0,
+        lastError: null,
+        lastOperationMessage: nextOperationMessage,
+      });
+    } catch (error) {
+      set({
+        isImportingImages: false,
+        imageImportProgressTotal: 0,
+        lastError: getOperationErrorMessage(error, "导入图片失败。"),
         lastOperationMessage: null,
       });
     }

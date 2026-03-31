@@ -4,6 +4,7 @@ import type {
   CopyDocumentRequest,
   DeletePagesRequest,
   DuplicatePagesRequest,
+  ImportImagesRequest,
   InsertBlankPageRequest,
   MergePdfRequest,
   MovePagesBetweenDocumentsRequest,
@@ -53,6 +54,10 @@ export const pdfBackend = {
 
   copyDocument(request: CopyDocumentRequest) {
     return invokeCommand<PdfOperationResult>("copy_document", { request });
+  },
+
+  importImages(request: ImportImagesRequest) {
+    return invokeCommand<PdfOperationResult>("import_images", { request });
   },
 
   movePagesBetweenDocuments(request: MovePagesBetweenDocumentsRequest) {

@@ -13,6 +13,10 @@ import {
 } from "../../files/lib/dialogSelection";
 import { hasWorkspaceDocumentSessionHistory } from "../../documents/lib/workspaceDocuments";
 import { CropEditorModal } from "../../crop/components/CropEditorModal";
+import {
+  getImageImportDialogExtensions,
+  resolveImageImportPlacement,
+} from "../../images/lib/imageImport";
 
 const operationCards = [
   {
@@ -86,6 +90,12 @@ export function BackendWorkspace() {
   const isSaving = usePdfDocumentStore((state) => state.isSaving);
   const isExporting = usePdfDocumentStore((state) => state.isExporting);
   const isMerging = usePdfDocumentStore((state) => state.isMerging);
+  const isImportingImages = usePdfDocumentStore(
+    (state) => state.isImportingImages,
+  );
+  const imageImportProgressTotal = usePdfDocumentStore(
+    (state) => state.imageImportProgressTotal,
+  );
   const isUndoing = usePdfDocumentStore((state) => state.isUndoing);
   const isRedoing = usePdfDocumentStore((state) => state.isRedoing);
   const isRotating = usePdfDocumentStore((state) => state.isRotating);
@@ -111,6 +121,7 @@ export function BackendWorkspace() {
   const mergeSelectedDocuments = usePdfDocumentStore(
     (state) => state.mergeSelectedDocuments,
   );
+  const importImages = usePdfDocumentStore((state) => state.importImages);
   const selectPage = usePdfDocumentStore((state) => state.selectPage);
   const movePageToDocument = usePdfDocumentStore((state) => state.movePageToDocument);
   const rotateSelectedPages = usePdfDocumentStore(
@@ -146,7 +157,12 @@ export function BackendWorkspace() {
     isDuplicating ||
     isInsertingBlank;
   const isFileActionBusy =
-    isInspecting || isSaving || isExporting || isMerging || isApplyingPageAction;
+    isInspecting ||
+    isSaving ||
+    isExporting ||
+    isMerging ||
+    isImportingImages ||
+    isApplyingPageAction;
   const nextUndoLabel = describeUndoAction(actionHistory);
   const nextRedoLabel = describeRedoAction(actionHistory);
   const secondaryDocumentSession =
@@ -166,6 +182,9 @@ export function BackendWorkspace() {
     targetPageNumber: number | null;
   } | null>(null);
   const [isCropEditorOpen, setIsCropEditorOpen] = useState(false);
+  const [imageImportPlacement, setImageImportPlacement] = useState<
+    "append" | "prepend" | "after-selection"
+  >("after-selection");
 
   useEffect(() => {
     void restoreWorkspace();
@@ -353,6 +372,45 @@ export function BackendWorkspace() {
   }) {
     await cropSelectedPages(margins);
     setIsCropEditorOpen(false);
+  }
+
+  async function handleImportImages() {
+    if (!documentSummary) {
+      return;
+    }
+
+    const selectedPaths = await open({
+      directory: false,
+      filters: [
+        {
+          name: "Images",
+          extensions: getImageImportDialogExtensions(),
+        },
+      ],
+      multiple: true,
+      title: "Import images as PDF pages",
+    });
+    const imagePaths = Array.isArray(selectedPaths)
+      ? selectedPaths.filter((path): path is string => typeof path === "string")
+      : selectedPaths
+        ? [selectedPaths]
+        : [];
+
+    if (imagePaths.length === 0) {
+      return;
+    }
+
+    const placement = resolveImageImportPlacement(
+      imageImportPlacement,
+      selectedPageNumbers,
+      documentSummary.pageCount,
+    );
+
+    await importImages(
+      imagePaths,
+      placement.position,
+      placement.afterPageNumber,
+    );
   }
 
   async function handleDropOnSecondaryDocument(targetPageNumber: number | null) {
@@ -649,6 +707,36 @@ export function BackendWorkspace() {
                     >
                       {isExporting ? "Exporting..." : "Export copy"}
                     </button>
+                    <button
+                      className="secondary-button"
+                      disabled={isFileActionBusy}
+                      onClick={() => void handleImportImages()}
+                      type="button"
+                    >
+                      {isImportingImages
+                        ? `Importing ${imageImportProgressTotal} image(s)...`
+                        : "Import images"}
+                    </button>
+                    <label className="workspace-select-label">
+                      <span>Insert</span>
+                      <select
+                        className="workspace-select"
+                        disabled={isFileActionBusy}
+                        onChange={(event) =>
+                          setImageImportPlacement(
+                            event.currentTarget.value as
+                              | "append"
+                              | "prepend"
+                              | "after-selection",
+                          )
+                        }
+                        value={imageImportPlacement}
+                      >
+                        <option value="after-selection">After selection</option>
+                        <option value="append">Append</option>
+                        <option value="prepend">Prepend</option>
+                      </select>
+                    </label>
                     <button
                       className="secondary-button"
                       disabled={isFileActionBusy}

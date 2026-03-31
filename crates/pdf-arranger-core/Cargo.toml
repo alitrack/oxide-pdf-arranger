@@ -8,8 +8,8 @@ repository = "https://github.com/alitrack/oxide-pdf-arranger"
 
 [dependencies]
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-lopdf = "0.39"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "tiff", "bmp"] }
+lopdf = { version = "0.39", features = ["embed_image"] }
 pdf-core = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }
 pdf-crop = { path = "../pdf-crop" }
 pdf-merge = { git = "https://github.com/alitrack/oxide-pdf.git", branch = "main" }

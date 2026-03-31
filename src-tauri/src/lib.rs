@@ -2,12 +2,13 @@ use pdf_arranger_core::{
     crop_pdf as crop_pdf_impl,
     copy_document as copy_document_impl,
     delete_pages as delete_pages_impl, duplicate_pages as duplicate_pages_impl,
+    import_images as import_images_impl,
     insert_blank_page as insert_blank_page_impl, inspect_pdf as inspect_pdf_impl,
     merge_pdfs as merge_pdfs_impl,
     move_pages_between_documents as move_pages_between_documents_impl,
     reorder_pages as reorder_pages_impl, rotate_pdf as rotate_pdf_impl,
     split_pdf as split_pdf_impl, AppError, CopyDocumentRequest, CropPdfRequest,
-    DeletePagesRequest, DuplicatePagesRequest, InsertBlankPageRequest, MergePdfRequest,
+    DeletePagesRequest, DuplicatePagesRequest, ImportImagesRequest, InsertBlankPageRequest, MergePdfRequest,
     MovePagesBetweenDocumentsRequest, PdfDocumentSummary, PdfOperationResult,
     ReorderPagesRequest, RotatePdfRequest, SplitPdfRequest,
 };
@@ -77,6 +78,11 @@ fn copy_document(request: CopyDocumentRequest) -> Result<PdfOperationResult, App
 }
 
 #[tauri::command]
+fn import_images(request: ImportImagesRequest) -> Result<PdfOperationResult, AppError> {
+    import_images_impl(&request)
+}
+
+#[tauri::command]
 fn move_pages_between_documents(
     request: MovePagesBetweenDocumentsRequest,
 ) -> Result<PdfOperationResult, AppError> {
@@ -102,6 +108,7 @@ pub fn run() {
             insert_blank_page,
             reorder_pages,
             copy_document,
+            import_images,
             move_pages_between_documents
         ])
         .run(tauri::generate_context!())

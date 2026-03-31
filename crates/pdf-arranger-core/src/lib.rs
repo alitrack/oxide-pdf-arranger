@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use image::{imageops, ImageBuffer, Rgba};
-use lopdf::{dictionary, Document, Object, ObjectId, Stream};
+use lopdf::content::{Content, Operation};
+use lopdf::{dictionary, xobject, Document, Object, ObjectId, Stream};
 use pdf_core::{InputSource, PdfDocument, PdfError};
 use pdf_crop::{crop_page_box, CropError, CropMargins, PageBox};
 use pdf_merge::MergeEngine;
@@ -157,6 +158,24 @@ pub struct MovePagesBetweenDocumentsRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CopyDocumentRequest {
     pub input_path: String,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImageImportPosition {
+    Append,
+    Prepend,
+    AfterSelection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportImagesRequest {
+    pub target_path: String,
+    pub image_paths: Vec<String>,
+    pub position: ImageImportPosition,
+    pub after_page_number: Option<u32>,
     pub output_path: String,
 }
 
@@ -643,6 +662,78 @@ pub fn copy_document(request: &CopyDocumentRequest) -> AppResult<PdfOperationRes
     })
 }
 
+pub fn import_images(request: &ImportImagesRequest) -> AppResult<PdfOperationResult> {
+    validate_path(&request.target_path, "target_path")?;
+    validate_path(&request.output_path, "output_path")?;
+    validate_image_paths_not_empty(&request.image_paths)?;
+    ensure_output_parent(&request.output_path)?;
+
+    let target_doc = PdfDocument::load(&request.target_path)?;
+    let target_page_count = target_doc.page_count();
+    let insertion_index = resolve_image_insertion_index(
+        target_page_count,
+        &request.position,
+        request.after_page_number,
+    )?;
+
+    let target_snapshot = tempfile::NamedTempFile::new()?;
+    std::fs::copy(&request.target_path, target_snapshot.path())?;
+
+    let image_pdfs: Vec<_> = request
+        .image_paths
+        .iter()
+        .map(|image_path| {
+            validate_path(image_path, "image_paths[]")?;
+            let temp_pdf = tempfile::NamedTempFile::new()?;
+            write_image_page_pdf(temp_pdf.path(), Path::new(image_path))?;
+            Ok(temp_pdf)
+        })
+        .collect::<AppResult<_>>()?;
+
+    let mut sources = Vec::new();
+    let mut occurrence_index = 0usize;
+
+    for target_index in 0..=target_page_count {
+        if target_index == insertion_index {
+            for image_pdf in &image_pdfs {
+                occurrence_index += 1;
+                let handle = handle_for_index(occurrence_index);
+                sources.push((
+                    InputSource::new(image_pdf.path()).with_handle(handle.clone()),
+                    vec![single_page_range(&handle, 1)],
+                ));
+            }
+        }
+
+        if target_index < target_page_count {
+            occurrence_index += 1;
+            let handle = handle_for_index(occurrence_index);
+            sources.push((
+                InputSource::new(target_snapshot.path()).with_handle(handle.clone()),
+                vec![single_page_range(&handle, (target_index + 1) as u32)],
+            ));
+        }
+    }
+
+    info!(
+        target_path = request.target_path,
+        output_path = request.output_path,
+        image_count = request.image_paths.len(),
+        position = ?request.position,
+        after_page_number = request.after_page_number,
+        "Importing images into PDF document"
+    );
+
+    let mut merged = MergeEngine::merge(&sources)?;
+    let output_page_count = merged.page_count() as u32;
+    merged.save(&request.output_path)?;
+
+    Ok(PdfOperationResult {
+        output_path: request.output_path.clone(),
+        page_count: output_page_count,
+    })
+}
+
 fn validate_path(value: &str, field_name: &str) -> AppResult<()> {
     if value.trim().is_empty() {
         return Err(AppError::InvalidRequest(format!(
@@ -656,6 +747,15 @@ fn validate_page_numbers_not_empty(page_numbers: &[u32]) -> AppResult<()> {
     if page_numbers.is_empty() {
         return Err(AppError::InvalidRequest(
             "page_numbers must contain at least one page".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_image_paths_not_empty(image_paths: &[String]) -> AppResult<()> {
+    if image_paths.is_empty() {
+        return Err(AppError::InvalidRequest(
+            "image_paths must contain at least one image".to_string(),
         ));
     }
     Ok(())
@@ -736,6 +836,27 @@ fn ensure_distinct_paths(input_path: &str, output_path: &str) -> AppResult<()> {
     Ok(())
 }
 
+fn resolve_image_insertion_index(
+    page_count: usize,
+    position: &ImageImportPosition,
+    after_page_number: Option<u32>,
+) -> AppResult<usize> {
+    match position {
+        ImageImportPosition::Append => Ok(page_count),
+        ImageImportPosition::Prepend => Ok(0),
+        ImageImportPosition::AfterSelection => {
+            let page_number = after_page_number.ok_or_else(|| {
+                AppError::InvalidRequest(
+                    "after_page_number is required when position is after-selection"
+                        .to_string(),
+                )
+            })?;
+            validate_page_numbers_exist(page_count, &[page_number])?;
+            Ok(page_number as usize)
+        }
+    }
+}
+
 fn handle_for_index(index: usize) -> String {
     let mut value = index + 1;
     let mut handle = String::new();
@@ -800,6 +921,72 @@ fn write_blank_page_pdf(path: &Path, media_box: [f32; 4]) -> AppResult<()> {
         }),
     );
 
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    doc.compress();
+    doc.save(path)?;
+    Ok(())
+}
+
+fn write_image_page_pdf(path: &Path, image_path: &Path) -> AppResult<()> {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let image_stream = xobject::image(image_path).map_err(|error| {
+        AppError::InvalidRequest(format!(
+            "failed to import image {}: {error}. Supported formats: JPEG, PNG, TIFF, BMP, WebP",
+            image_path.display()
+        ))
+    })?;
+    let width = image_stream
+        .dict
+        .get(b"Width")
+        .ok()
+        .and_then(|value| value.as_i64().ok())
+        .unwrap_or(612);
+    let height = image_stream
+        .dict
+        .get(b"Height")
+        .ok()
+        .and_then(|value| value.as_i64().ok())
+        .unwrap_or(792);
+    let image_id = doc.add_object(image_stream);
+    let image_name = b"Im0";
+    let content = Content {
+        operations: vec![
+            Operation::new("q", vec![]),
+            Operation::new(
+                "cm",
+                vec![width.into(), 0.into(), 0.into(), height.into(), 0.into(), 0.into()],
+            ),
+            Operation::new("Do", vec![Object::Name(image_name.to_vec())]),
+            Operation::new("Q", vec![]),
+        ],
+    };
+    let content_id = doc.add_object(Stream::new(
+        dictionary! {},
+        content.encode().map_err(|error| {
+            AppError::InvalidRequest(format!("failed to encode image page content: {error}"))
+        })?,
+    ));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+        "MediaBox" => vec![0.into(), 0.into(), width.into(), height.into()],
+    });
+    doc.add_xobject(page_id, image_name, image_id)
+        .map_err(|error| AppError::InvalidRequest(format!("failed to attach image resource: {error}")))?;
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Count" => 1,
+            "Kids" => vec![Object::Reference(page_id)],
+        }),
+    );
     let catalog_id = doc.add_object(dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,
@@ -1121,6 +1308,59 @@ mod tests {
                     .expect("missing page marker text")
             })
             .collect()
+    }
+
+    fn create_test_image(
+        path: &std::path::Path,
+        format: image::ImageFormat,
+        rgba: [u8; 4],
+    ) {
+        let image = ImageBuffer::from_pixel(24, 16, Rgba(rgba));
+        image
+            .save_with_format(path, format)
+            .expect("failed to save test image");
+    }
+
+    fn assert_page_marker(doc: &Document, page_id: ObjectId, expected: &str) {
+        let content = doc
+            .get_page_content(page_id)
+            .expect("missing page content");
+        let decoded = Content::decode(&content).expect("failed to decode page content");
+        let marker = decoded
+            .operations
+            .iter()
+            .find_map(|operation| {
+                if operation.operator == "Tj" {
+                    Some(
+                        String::from_utf8(
+                            operation.operands[0]
+                                .as_str()
+                                .expect("Tj operand should be a string")
+                                .to_vec(),
+                        )
+                        .expect("page marker should be utf-8"),
+                    )
+                } else {
+                    None
+                }
+            })
+            .expect("missing page marker text");
+
+        assert_eq!(marker, expected);
+    }
+
+    fn assert_page_contains_operator(doc: &Document, page_id: ObjectId, expected: &str) {
+        let content = doc
+            .get_page_content(page_id)
+            .expect("missing page content");
+        let decoded = Content::decode(&content).expect("failed to decode page content");
+        assert!(
+            decoded
+                .operations
+                .iter()
+                .any(|operation| operation.operator == expected),
+            "expected page to contain operator {expected}",
+        );
     }
 
     #[test]
@@ -1501,5 +1741,59 @@ mod tests {
             "expected validation error, got {error:?}"
         );
         assert!(error.to_string().contains("crop margins exceed the page bounds"));
+    }
+
+    #[test]
+    fn import_images_inserts_pages_after_the_selected_page() {
+        let dir = tempdir().expect("tempdir");
+        let target = dir.path().join("image-import-target.pdf");
+        let first_image = dir.path().join("image-1.png");
+        let second_image = dir.path().join("image-2.webp");
+        create_text_fixture_with_pages(&target, &[("T1", 612, 792, 0), ("T2", 612, 792, 0)]);
+        create_test_image(&first_image, image::ImageFormat::Png, [255, 0, 0, 255]);
+        create_test_image(&second_image, image::ImageFormat::WebP, [0, 128, 255, 255]);
+
+        let result = import_images(&ImportImagesRequest {
+            target_path: target.to_string_lossy().into_owned(),
+            output_path: target.to_string_lossy().into_owned(),
+            image_paths: vec![
+                first_image.to_string_lossy().into_owned(),
+                second_image.to_string_lossy().into_owned(),
+            ],
+            position: ImageImportPosition::AfterSelection,
+            after_page_number: Some(1),
+        })
+        .expect("image import should succeed");
+
+        assert_eq!(result.page_count, 4);
+        let doc = Document::load(&target).expect("imported doc should load");
+        let page_ids: Vec<_> = doc.get_pages().values().copied().collect();
+        assert_page_marker(&doc, page_ids[0], "T1");
+        assert_page_contains_operator(&doc, page_ids[1], "Do");
+        assert_page_contains_operator(&doc, page_ids[2], "Do");
+        assert_page_marker(&doc, page_ids[3], "T2");
+    }
+
+    #[test]
+    fn import_images_requires_an_anchor_page_for_insert_after_selection() {
+        let dir = tempdir().expect("tempdir");
+        let target = dir.path().join("image-import-invalid.pdf");
+        let image_path = dir.path().join("image-invalid.png");
+        create_text_fixture_with_pages(&target, &[("T1", 612, 792, 0)]);
+        create_test_image(&image_path, image::ImageFormat::Png, [255, 0, 0, 255]);
+
+        let error = import_images(&ImportImagesRequest {
+            target_path: target.to_string_lossy().into_owned(),
+            output_path: target.to_string_lossy().into_owned(),
+            image_paths: vec![image_path.to_string_lossy().into_owned()],
+            position: ImageImportPosition::AfterSelection,
+            after_page_number: None,
+        })
+        .expect_err("missing insertion anchor should fail");
+
+        assert!(
+            matches!(error, AppError::InvalidRequest(_)),
+            "expected validation error, got {error:?}"
+        );
     }
 }

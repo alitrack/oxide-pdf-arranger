@@ -73,6 +73,16 @@ export interface CopyDocumentRequest {
   outputPath: string;
 }
 
+export type ImageImportPosition = "append" | "prepend" | "after-selection";
+
+export interface ImportImagesRequest {
+  targetPath: string;
+  imagePaths: string[];
+  position: ImageImportPosition;
+  afterPageNumber: number | null;
+  outputPath: string;
+}
+
 export interface MovePagesBetweenDocumentsRequest {
   sourcePath: string;
   targetPath: string;
