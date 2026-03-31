@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Group, Image as KonvaImage, Layer, Rect, Stage, Text } from "react-konva";
 import type { CropMargins, PdfPageInfo } from "../../backend/types/pdf";
+import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
 import {
   applyCropMarginChange,
   createCropStateFromPageBoxes,
@@ -231,10 +233,14 @@ export function CropEditorModal({
                 ? `当前设置会应用到 ${selectedPageCount} 个已选页面。`
                 : "当前设置会应用到已选页面。"}
             </p>
+            <Badge className="crop-badge-row" variant="accent">
+              <span>Batch</span>
+              <strong>{selectedPageCount} page(s)</strong>
+            </Badge>
           </div>
-          <button className="secondary-button" onClick={onClose} type="button">
+          <Button onClick={onClose} variant="secondary" type="button">
             Close
-          </button>
+          </Button>
         </div>
 
         <div className="crop-modal-grid">
@@ -411,17 +417,17 @@ export function CropEditorModal({
             ) : null}
 
             <div className="crop-actions">
-              <button className="secondary-button" onClick={onClose} type="button">
+              <Button onClick={onClose} variant="secondary" type="button">
                 Cancel
-              </button>
-              <button
-                className="primary-button"
+              </Button>
+              <Button
                 disabled={isApplying}
                 onClick={() => onApply(cropState.margins)}
                 type="button"
+                variant="primary"
               >
                 {isApplying ? `Applying to ${selectedPageCount} page(s)...` : "Apply crop"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

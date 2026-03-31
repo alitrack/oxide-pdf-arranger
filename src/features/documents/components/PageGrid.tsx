@@ -29,6 +29,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { PdfPageInfo } from "../../backend/types/pdf";
+import { getPinchZoomAction, measureTouchDistance } from "../lib/touchGestures";
 import { computeVirtualGridWindow } from "../lib/virtualGrid";
 
 interface PageGridProps {
@@ -277,6 +278,7 @@ export function PageGrid({
   const reorderHelpId = "page-grid-reorder-help";
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const pinchDistanceRef = useRef<number | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(gridItemWidth * 4);
   const [viewportHeight, setViewportHeight] = useState(720);
@@ -476,6 +478,43 @@ export function PageGrid({
       <div
         className={`page-grid-viewport${pages.length > 0 ? " virtualized" : ""}`}
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        onTouchEnd={(event) => {
+          if (event.touches.length < 2) {
+            pinchDistanceRef.current = null;
+          }
+        }}
+        onTouchMove={(event) => {
+          if (event.touches.length < 2) {
+            return;
+          }
+
+          const nextDistance = measureTouchDistance(
+            event.touches[0],
+            event.touches[1],
+          );
+          const previousDistance = pinchDistanceRef.current;
+
+          if (previousDistance !== null) {
+            const action = getPinchZoomAction(previousDistance, nextDistance);
+            if (action === "zoom-in") {
+              event.preventDefault();
+              onZoomIn();
+            } else if (action === "zoom-out") {
+              event.preventDefault();
+              onZoomOut();
+            }
+          }
+
+          pinchDistanceRef.current = nextDistance;
+        }}
+        onTouchStart={(event) => {
+          if (event.touches.length >= 2) {
+            pinchDistanceRef.current = measureTouchDistance(
+              event.touches[0],
+              event.touches[1],
+            );
+          }
+        }}
         ref={viewportRef}
       >
         {pages.length > 0 ? (

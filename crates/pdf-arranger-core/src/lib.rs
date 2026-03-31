@@ -1363,6 +1363,24 @@ mod tests {
         );
     }
 
+    fn create_large_text_fixture(path: &std::path::Path, page_count: usize) {
+        let pages: Vec<_> = (1..=page_count)
+            .map(|index| {
+                let marker = format!("P{index}");
+                (marker, 612_i64, 792_i64, 0_i64)
+            })
+            .collect();
+
+        let page_refs: Vec<_> = pages
+            .iter()
+            .map(|(marker, width, height, rotation)| {
+                (marker.as_str(), *width, *height, *rotation)
+            })
+            .collect();
+
+        create_text_fixture_with_pages(path, &page_refs);
+    }
+
     #[test]
     fn inspect_pdf_reports_page_boxes_and_rotation() {
         let dir = tempdir().expect("tempdir");
@@ -1795,5 +1813,18 @@ mod tests {
             matches!(error, AppError::InvalidRequest(_)),
             "expected validation error, got {error:?}"
         );
+    }
+
+    #[test]
+    fn inspect_pdf_handles_large_documents_with_500_pages() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("large-500-pages.pdf");
+        create_large_text_fixture(&input, 500);
+
+        let summary = inspect_pdf(&input.to_string_lossy()).expect("inspect should succeed");
+
+        assert_eq!(summary.page_count, 500);
+        assert_eq!(summary.pages.first().map(|page| page.page_number), Some(1));
+        assert_eq!(summary.pages.last().map(|page| page.page_number), Some(500));
     }
 }

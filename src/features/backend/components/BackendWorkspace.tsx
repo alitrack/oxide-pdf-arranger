@@ -850,6 +850,49 @@ export function BackendWorkspace() {
                 <span className="statusbar-path">{documentSummary.path}</span>
               </div>
 
+              <div className="mobile-toolbar">
+                <button
+                  className="secondary-button"
+                  disabled={isFileActionBusy}
+                  onClick={() => void handleImportImages()}
+                  type="button"
+                >
+                  Import
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                  onClick={() => setIsCropEditorOpen(true)}
+                  type="button"
+                >
+                  Crop
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                  onClick={() => rotateSelectedPages(90)}
+                  type="button"
+                >
+                  Rotate
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={!nextUndoLabel || isApplyingPageAction}
+                  onClick={() => void undoLastAction()}
+                  type="button"
+                >
+                  Undo
+                </button>
+                <button
+                  className="secondary-button danger"
+                  disabled={selectedPageNumbers.length === 0 || isApplyingPageAction}
+                  onClick={() => deleteSelectedPages()}
+                  type="button"
+                >
+                  Delete
+                </button>
+              </div>
+
               <div className="shortcut-reference">
                 <span className="shortcut-reference-title">Keyboard shortcuts</span>
                 <div className="shortcut-reference-grid">
